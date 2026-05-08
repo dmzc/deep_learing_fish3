@@ -1,0 +1,38 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "调试python模块",
+            "type": "debugpy",
+            "request": "launch",
+            //relativeFileDirName从根目录开始的相对路径，所以不行 "module": "${relativeFileDirname}.${fileBasenameNoExtension}",
+            "module": "${fileDirnameBasename}.${fileBasenameNoExtension}",
+            // "program": "${command:python.interpreterPath}",
+            // "args": [
+            //     "-m",
+            //     "${relativeFileDirname.replace('\\\\','.')}.${fileBasenameNoExtension}"
+            // ],
+            // "module": "${command:extension.commandvariable.transform:${relativeFileDirname}|replaceAll:\\\\:.}.${fileBasenameNoExtension}",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/src"
+        },
+        {
+            "name": "pytest调试",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": [
+                // 这里可以指定要运行的测试文件，比如 "tests/common/test_util.py"
+                // 也可以留空，运行所有测试
+                "-vv",
+                "--md=test_report.md",
+                "-s"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        }
+    ]
+}
