@@ -2,25 +2,29 @@ import pickle
 import re
 from pathlib import Path
 from src.common.vocab import Vocab
-from common.enums.dataset_type import DatasetType
+from src.common.enums.dataset_type import DatasetType
 
 ptb_dir = Path(__file__).parent
-# vocab_path = ptb_dir / "ptb.vocab.pkl"
 
 
-def load_data(type: DatasetType = DatasetType.TRAIN) -> Vocab:
+def load_data(
+    type: DatasetType = DatasetType.TRAIN, use_cache=True, data_size=None
+) -> Vocab:
     vocab_file = ptb_dir / f"{type.value}.vocab.pkl"
-    if Path.exists(vocab_file):
+
+    if Path.exists(vocab_file) and use_cache:
         with open(vocab_file, "rb") as fh:
             vocab: Vocab = pickle.load(fh)
         return vocab
-    data_file = ptb_dir / f"ptb.{type.value}.txt"
 
+    data_file = ptb_dir / f"ptb.{type.value}.txt"
     with open(data_file, "r", encoding="utf-8") as fh:
         text = _clean(fh.read())
         vocab = Vocab()
-        # TODO:这里不能在拼接而成的大句子里构建共现矩阵，而是应该在每个句子内滑动
+        if data_size is not None:
+            text = text[:data_size]
         vocab.build(text)
+        # wb是以二进制形式打开，会全量覆盖，追加应该用ab
         with open(vocab_file, "wb") as fh:
             pickle.dump(vocab, fh)
     return vocab
