@@ -48,27 +48,25 @@ def get_similar_words(query_word: str, vocab: Vocab, top=5):
     return words
 
 
-def cross_entropy(y, t: np.ndarray):
+def cross_entropy(y: np.ndarray, t: np.ndarray):
     """
     交叉熵损失函数
     """
     if y.ndim == 1:
-        # 将单样本统一为多样本形式
+        # 将单样本统一为多样本形式，统一后续操作
+        # y = [0.1, 0.2 ,0.7], t = [0, 1, 0]
         t = t.reshape(1, t.size)
         y = y.reshape(1, y.size)
 
-    # 监督数据是one-hot-vector的情况下，转换为正确解标签的索引
-
-    # axis为1时按行比较，为0时按列比较
-
-    # t = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  => [1, 2, 3]
     if t.size == y.size:
+        # 监督数据是one-hot-vector的情况下，转换为正确解标签的索引
+        # axis为1时按行比较，为0时按列比较
+        # t = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]  => [1, 2, 3]
         t = t.argmax(axis=1)
 
     batch_size = y.shape[0]  # 样本数
 
     # np.arange(batch_size)生成一个样本数相同的数组，代表取第几个样本的值，t为多个样本最大值数组索引。
-
     # 二维数组的索引取数组，代表要批量操作
     return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
 

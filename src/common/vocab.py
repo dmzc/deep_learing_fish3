@@ -1,5 +1,6 @@
 import numpy as np
 from src.common.decorators.timer import timer
+import time as time
 
 
 class Vocab:
@@ -15,6 +16,8 @@ class Vocab:
     __current_use_SVD: bool
     __current_svd_vector_size: int
 
+    __probability: np.ndarray
+
     def __init__(self):
         self.__word_id = {}
         self.__id_word = {}
@@ -26,6 +29,7 @@ class Vocab:
         self.__current_use_PPMI = False
         self.__current_use_SVD = False
         self.__current_svd_vector_size = 100
+        self.__probability = None
 
     def build(self, text: str) -> np.ndarray:
         # TODO:这里不能在拼接而成的大句子里构建共现矩阵，而是应该在每个句子内滑动
@@ -37,7 +41,7 @@ class Vocab:
                 id = len(wordsMap)
                 wordsMap[word] = id
                 idsMap[id] = word
-        corpus = np.array([wordsMap[word] for word in wordsArr])
+        corpus = np.array([wordsMap[word] for word in wordsArr], dtype=np.uint32)
         self.__word_id = wordsMap
         self.__id_word = idsMap
         self.__corpus = corpus
@@ -94,6 +98,9 @@ class Vocab:
 
     def get_size(self) -> int:
         return len(self.__id_word)
+
+    def get_current_window_size(self) -> int:
+        return self.__current_window_size
 
     @timer(message="获取word2vec数据耗时")
     def get_word2vec_data(self, window_size=2, use_id=True, use_onehot=False):
@@ -291,3 +298,11 @@ class Vocab:
             U, s, VT = np.linalg.svd(ppmi_matrix, full_matrices=False)
             U = U[:, :vector_size]  # 这就是最终词向量
         return U
+
+    def get_probability(self) -> np.ndarray:
+        if self.__probability is not None:
+            return self.__probability
+        corpus = self.__corpus
+        word_count = np.bincount(corpus, minlength=self.get_size())
+        self.__probability = word_count / len(corpus)
+        return self.__probability

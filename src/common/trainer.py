@@ -52,7 +52,7 @@ class Trainer:
                 total_loss += loss
                 loss_count += 1
                 model.backward()
-                (weights, gradients) = self.merge_share()
+                (weights, gradients) = model.get_weights_gradients()
                 self.clip_grad(gradients, max_grad)
                 optimizer.update(weights, gradients)
                 # 用平均交叉熵损失计算困惑度
@@ -62,27 +62,10 @@ class Trainer:
                     self.__lost_list.append(float(avg_loss))
                     self.__ppl_list.append(float(ppl))
                     total_loss, loss_count = 0, 0
+                # print(f"耗时{time.time() - start_time}")
+                # a = 12
             # 一次epoch需要0.23秒
             print(f"训练epoch耗时:{time.time() - start_time}")
-
-    def merge_share(self) -> tuple[np.ndarray, np.ndarray]:
-        model = self.__model
-        gradients = model._gradients[:]
-        weights = model._weights[:]
-        oIndex = 0
-        while oIndex < len(weights):
-            oWeight = weights[oIndex]
-            oGradient = gradients[oIndex]
-            shared_indexs: list[int] = []
-            for iIndex in range(oIndex + 1, len(weights)):
-                if oWeight is weights[iIndex]:
-                    oGradient += gradients[iIndex]
-                    shared_indexs.append(iIndex)
-            for index in reversed(shared_indexs):
-                weights.pop(index)
-                gradients.pop(index)
-            oIndex += 1
-        return (weights, gradients)
 
     def clip_grad(self, grads: np.ndarray, max_norm):
         if max_norm is None:

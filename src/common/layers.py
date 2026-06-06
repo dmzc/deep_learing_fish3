@@ -4,8 +4,15 @@ from abc import abstractmethod, ABC
 
 from src.common.util import softmax, cross_entropy
 
+from src.common.vocab import Vocab
+
+from src.common.samplers import ISampler, SimpleSampler
+
 
 class ILayer(ABC):
+    # 权重,仅作类型声明
+    weights: np.ndarray
+
     # 权重梯度,仅作类型声明
     weight_gradients: np.ndarray
 
@@ -104,7 +111,7 @@ class AffineLayer(ILayer):
         return dx
 
 
-class SoftmaxWithLossLayer(ILayer):
+class SoftmaxLossLayer(ILayer):
     def __init__(self):
         self.loss = None
         self.y = None
@@ -127,6 +134,27 @@ class SoftmaxWithLossLayer(ILayer):
             dx[np.arange(batch_size), self.t] -= 1
             dx = dx / batch_size
         # 的损失对输出的导数，所以要取平均梯度往前传播
+        return dx
+
+
+class SigmoidLossLayer(ILayer):
+    def __init__(self):
+        self.params, self.grads = [], []
+        self.y = None  # sigmoid的输出
+        self.t = None  # 监督标签
+
+    def forward(self, x, t):
+        self.t = t
+        self.y = 1 / (1 + np.exp(-x))
+        # 原来：x = [0.8, 0.3, 0.6]，t = [1, 0, 0]，第一个是正例，剩下的都是负例
+        # 现在：x = [ [0.2, 0.8], [0.6, 0.3], [0.4, 0.6] ]，t不变，此时就可以套
+        # 用多分类交叉熵这个函数,t正好就是当前正解标签
+        self.loss = cross_entropy(np.c_[1 - self.y, self.y], self.t)
+        return self.loss
+
+    def backward(self, dout=1):
+        batch_size = self.t.shape[0]
+        dx = (self.y - self.t) * dout / batch_size
         return dx
 
 
@@ -248,3 +276,103 @@ class BatchNormalizationLayer(ILayer):
         self.dbeta = dbeta
 
         return dx
+
+
+class EmbeddingLayer(ILayer):
+    _index: np.ndarray
+    """
+    词嵌入层，避免用one-hot变量（而是索引）来运算
+    """
+
+    def __init__(self, W: np.ndarray):
+        self.weights = W
+        self._index = None
+        self.weight_gradients = np.zeros_like(W)
+
+    def forward(self, index: np.ndarray):
+        self._index = index
+        return self.weights[index]
+
+    def backward(self, dout):
+        weight_gradients = self.weight_gradients
+        # 每次反向传播时都要清空上次的，避免累加
+        weight_gradients[...] = 0
+
+        # 根据索引，将dout对应行累加到weight_gradients中（重复索引自动累加）
+        np.add.at(weight_gradients, self._index, dout)
+
+
+class EmbeddingDotLayer(ILayer):
+    _embed_layer: EmbeddingLayer
+    _in_vec: np.ndarray
+    _out_vec: np.ndarray
+
+    def __init__(self, W):
+        self.weights = W
+        embed_layer = self._embed_layer = EmbeddingLayer(W)
+        self.weight_gradients = embed_layer.weight_gradients
+
+    def forward(self, in_vec: np.ndarray, idx: np.ndarray):
+        self._in_vec = in_vec
+        self._out_vec = out_vec = self._embed_layer.forward(idx)
+        # axis=1 -> 按行求和，target * h是矩阵各位置元素相乘，而不是内积
+        out = np.sum(out_vec * in_vec, axis=1)
+        return out
+
+    def backward(self, dout: np.ndarray):
+        # 这里完全不用reshape（隐式（B，) * (B,D)会隐式变成(B,1) ）
+        dout = dout.reshape(dout.shape[0], 1)
+        d_out = dout * self._in_vec
+        # 方向传播，以便后续更新W_out
+        self._embed_layer.backward(d_out)
+        d_in = dout * self._out_vec
+        # 传到输入的embedding层，更新W_in
+        return d_in
+
+
+class NegativeSamplingLossLayer(ILayer):
+    _negative_sampler: ISampler
+    _loss_layers: list[SigmoidLossLayer]
+    _embed_dot_layers: list[EmbeddingDotLayer]
+
+    def __init__(self, vocab: Vocab, out_matrix: np.ndarray, sample_size=5, power=0.75):
+        self._negative_sampler = SimpleSampler(
+            vocab=vocab, sample_size=sample_size, power=power
+        )
+        self.weights = out_matrix
+        loss_layers = self._loss_layers = []
+        embed_dot_layers = self._embed_dot_layers = []
+        weight_gradients = self.weight_gradients = []
+        for index in range(sample_size + 1):
+            loss_layers.append(SigmoidLossLayer())
+            embed_dot_layer = EmbeddingDotLayer(out_matrix)
+            embed_dot_layers.append(embed_dot_layer)
+            weight_gradients.append(embed_dot_layer.weight_gradients)
+
+    def forward(self, in_vec: np.ndarray, target: np.ndarray):
+        batch_size = target.shape[0]
+        negative_smaples = self._negative_sampler.do_sample(target)
+        embed_dot_layers = self._embed_dot_layers
+        loss_layers = self._loss_layers
+        # in_vec代表上下文词的综合向量，target代表中心词向量，两者内积就是得分
+        score = embed_dot_layers[0].forward(in_vec=in_vec, idx=target)
+        # 正例平均损失
+        loss = loss_layers[0].forward(score, np.ones(batch_size, dtype=np.uint8))
+
+        # 因为负样本和正样本息息相关，所以不能把正样本、负样本混在一个batch里（因为一个batch包含了多个样本），所以分多个loss_layer计算
+        negative_labels = np.zeros(batch_size, dtype=np.uint8)
+        for index in range(self._negative_sampler._sample_size):
+            negative_target = negative_smaples[:, index]
+            score = embed_dot_layers[index + 1].forward(
+                in_vec=in_vec, idx=negative_target
+            )
+            loss += loss_layers[index + 1].forward(score, negative_labels)
+        return loss
+
+    def backward(self, dout):
+        dh = 0
+        for l0, l1 in zip(self._loss_layers, self._embed_dot_layers):
+            dscore = l0.backward(dout)
+            dh += l1.backward(dscore)
+
+        return dh
