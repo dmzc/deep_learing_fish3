@@ -18,30 +18,58 @@ class IModel(ABC):
     # 所有层的梯度
     _gradients: list[np.ndarray]
 
-    def __init__(self):
-        self._weights = []
-        self._gradients = []
-        pass
-
-    def get_weights_gradients():
-        pass
+    @abstractmethod
+    def get_weights_gradients() -> tuple[list[np.ndarray], list[np.ndarray]]: ...
 
     @abstractmethod
-    def forward(self, contexts, target) -> float:
-        """
-        前向传播，返回损失函数值
-        """
-        pass
+    def forward(self, contexts, target) -> float: ...
 
     @abstractmethod
-    def backward(self, dout) -> None:
-        """
-        反向传播，不需要返回值
-        """
+    def backward(self, dout) -> None: ...
+
+
+class AbstractModel(IModel):
+    def get_weights_gradients(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+        layers = self.get_weight_layers()
+        if layers is None:
+            return None
+
+        __weightsMap = {}
+        __gradientsMap = {}
+
+        def __collect(self, layer: ILayer):
+            weights_grdients: tuple[list[np.ndarray], list[np.ndarray]] = (
+                layer.get_weights_gradients()
+            )
+            if weights_grdients is None:
+                return
+            weights = weights_grdients[0]
+            gradients = weights_grdients[1]
+            for index, weight in enumerate(weights):
+                key = id(weight)
+                gradient = gradients[index]
+                if key in __weightsMap:
+                    t_gradient = __gradientsMap[key]
+                    t_gradient += gradient
+                else:
+                    __weightsMap[key] = weight.copy()
+                    __gradientsMap[key] = gradient.copy()
+
+        for layer in layers:
+            __collect(layer)
+
+        weights = []
+        gradients = []
+        for key in __weightsMap:
+            weights.append(__weightsMap.get(key))
+            gradients.append(__gradientsMap.get(key))
+        return (weights, gradients)
+
+    def get_weight_layers(self) -> list[ILayer]:
         pass
 
 
-class SimpleCbowModel(IModel):
+class SimpleCbowModel(AbstractModel):
     # 输入层矩阵
     _W_in: np.ndarray
     # 输出层矩阵
@@ -64,35 +92,9 @@ class SimpleCbowModel(IModel):
         self.__in_layer2 = AffineLayer(W_in)
         self.__out_layer = AffineLayer(W_out)
         self.__loss_layer = SoftmaxLossLayer()
-        self._weights.extend(
-            [self.__in_layer1.W, self.__in_layer2.W, self.__out_layer.W]
-        )
-        self._gradients.extend(
-            [
-                self.__in_layer1.weight_gradients,
-                self.__in_layer2.weight_gradients,
-                self.__out_layer.weight_gradients,
-            ]
-        )
 
-    def get_weights_gradients(self):
-        model = self
-        gradients = model._gradients[:]
-        weights = model._weights[:]
-        oIndex = 0
-        while oIndex < len(weights):
-            oWeight = weights[oIndex]
-            oGradient = gradients[oIndex]
-            shared_indexs: list[int] = []
-            for iIndex in range(oIndex + 1, len(weights)):
-                if oWeight is weights[iIndex]:
-                    oGradient += gradients[iIndex]
-                    shared_indexs.append(iIndex)
-            for index in reversed(shared_indexs):
-                weights.pop(index)
-                gradients.pop(index)
-            oIndex += 1
-        return (weights, gradients)
+    def get_weight_layers(self):
+        return [self.__in_layer1, self.__in_layer2, self.__out_layer]
 
     def forward(self, x: np.ndarray, t: np.ndarray):
         """
@@ -114,15 +116,11 @@ class SimpleCbowModel(IModel):
         self.__in_layer2.backward(da)
 
 
-class CbowModel(IModel):
+class CbowModel(AbstractModel):
     # 输入层矩阵
     _W_in: np.ndarray
     # 输出层矩阵
     _W_out: np.ndarray
-
-    _G_in: list[np.ndarray]
-
-    _G_out: list[np.ndarray]
 
     _in_layers: list[ILayer]
 
@@ -140,23 +138,17 @@ class CbowModel(IModel):
             np.float32
         )
         in_layers = self._in_layers = []
-        self._G_in = in_layers_gradients = []
-        for index in range(window_size * 2):
+        for _ in range(window_size * 2):
             in_layer = EmbeddingLayer(W_in)
             in_layers.append(in_layer)
-            in_layers_gradients.append(in_layer.weight_gradients)
 
-        loss_layer = self._loss_layer = NegativeSamplingLossLayer(
-            vocab=vocab, out_matrix=W_out
-        )
-        # 此loss layer，内部有多个负采样的embed layer
-        self._G_out = loss_layer.weight_gradients
+        self._loss_layer = NegativeSamplingLossLayer(vocab=vocab, out_matrix=W_out)
 
-    def get_weights_gradients(self):
-        return (
-            [self._W_in, self._W_out],
-            [np.sum(self._G_in), np.sum(self._G_out)],
-        )
+    def get_weight_layers(self):
+        layers = []
+        layers.extend(self._in_layers)
+        layers.append(self._loss_layer)
+        return layers
 
     def forward(self, contexts: np.ndarray, target: np.ndarray):
         in_vec = 0
@@ -172,3 +164,15 @@ class CbowModel(IModel):
         dout *= 1 / len(self._in_layers)
         for layer in self._in_layers:
             layer.backward(dout)
+
+
+class SimpleRNNModel(AbstractModel):
+    def __init__(self):
+
+        pass
+
+    def forward(self, contexts, target):
+        pass
+
+    def backward(self, dout):
+        pass

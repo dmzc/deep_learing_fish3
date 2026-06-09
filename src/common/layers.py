@@ -10,14 +10,8 @@ from src.common.samplers import ISampler, SimpleSampler
 
 
 class ILayer(ABC):
-    # 权重,仅作类型声明
-    weights: np.ndarray
-
-    # 权重梯度,仅作类型声明
-    weight_gradients: np.ndarray
-
-    # 偏置梯度，仅作类型声明,不是所有层都有
-    bias_gradients: np.ndarray
+    @abstractmethod
+    def get_weights_gradients() -> tuple[list[np.ndarray], list[np.ndarray]]: ...
 
     @abstractmethod
     def forward(self, x: np.ndarray, train_flag=False) -> np.ndarray: ...
@@ -35,7 +29,7 @@ class ReluLayer(ILayer):
     def __init__(self):
         self.mask = None
 
-    def forward(self, x, train_flag=False):
+    def forward(self, x):
         self.mask = x <= 0
         out = x.copy()
         out[self.mask] = 0
@@ -74,41 +68,42 @@ class SigmodLayer(ILayer):
 class AffineLayer(ILayer):
     weights: np.ndarray
     weight_gradients: np.ndarray
+    bias: np.ndarray
     bias_gradients: np.ndarray
+
+    x: np.ndarray
 
     def __init__(self, W, b=None):
         """
         不是所有层都需要偏置，训练word2vec时就不需要
         """
-        self.W = W
-        self.b = b
-        self.x = None
+        self.weights = W
         self.weight_gradients = np.zeros_like(W)
-        self.bias_gradients = None
-        self.original_x_shape = None
+        if b is not None:
+            self.bias = b
+            self.bias_gradients = np.zeros_like(b)
 
-    def forward(self, x, train_flag=False):
-        self.original_x_shape = x.shape
-        # 将卷积层的高位数据转换为二维数据
-        x = x.reshape(x.shape[0], -1)
+    def forward(self, x):
         self.x = x
-        malmul = np.dot(x, self.W)
-        if self.b is None:
+        malmul = np.dot(x, self.weights)
+        if self.bias is None:
             return malmul
-        return malmul + self.b
+        return malmul + self.bias
 
     def backward(self, dout):
         # 计算dx是为了向前传播
-        dx = np.dot(dout, self.W.T)
+        dx: np.ndarray = np.dot(dout, self.weights.T)
         self.weight_gradients[:] = np.dot(self.x.T, dout)
-
-        if self.b is not None:
-            self.bias_gradients = np.sum(dout, axis=0)
-        # 返回的dx是要继续向前传播的，因为上一层通这一层的关联，就是这个输入x所
-        # 以要把这个dx也转换为卷积层的高位数据,*在这里是将元组解包，比如将
-        # (100,784)的矩阵还原为(100,1,28,28)的张量
-        dx = dx.reshape(*self.original_x_shape)
+        if self.bias is not None:
+            self.bias_gradients[:] = np.sum(dout, axis=0)
         return dx
+
+    def get_weights_gradients(self):
+        if self.bias is not None:
+            return (
+                [self.weights, self.bias],
+                [self.weight_gradients, self.bias_gradients],
+            )
 
 
 class SoftmaxLossLayer(ILayer):
@@ -280,26 +275,31 @@ class BatchNormalizationLayer(ILayer):
 
 class EmbeddingLayer(ILayer):
     _index: np.ndarray
+    _weights: np.ndarray
+    _weight_gradients: np.ndarray
     """
     词嵌入层，避免用one-hot变量（而是索引）来运算
     """
 
     def __init__(self, W: np.ndarray):
-        self.weights = W
+        self._weights = W
         self._index = None
-        self.weight_gradients = np.zeros_like(W)
+        self._weight_gradients = np.zeros_like(W)
 
     def forward(self, index: np.ndarray):
         self._index = index
-        return self.weights[index]
+        return self._weights[index]
 
     def backward(self, dout):
-        weight_gradients = self.weight_gradients
+        weight_gradients = self._weight_gradients
         # 每次反向传播时都要清空上次的，避免累加
         weight_gradients[...] = 0
 
         # 根据索引，将dout对应行累加到weight_gradients中（重复索引自动累加）
         np.add.at(weight_gradients, self._index, dout)
+
+    def get_weights_gradients(self):
+        return ([self._weights], [self._weight_gradients])
 
 
 class EmbeddingDotLayer(ILayer):
@@ -308,9 +308,7 @@ class EmbeddingDotLayer(ILayer):
     _out_vec: np.ndarray
 
     def __init__(self, W):
-        self.weights = W
-        embed_layer = self._embed_layer = EmbeddingLayer(W)
-        self.weight_gradients = embed_layer.weight_gradients
+        self._embed_layer = EmbeddingLayer(W)
 
     def forward(self, in_vec: np.ndarray, idx: np.ndarray):
         self._in_vec = in_vec
@@ -329,6 +327,9 @@ class EmbeddingDotLayer(ILayer):
         # 传到输入的embedding层，更新W_in
         return d_in
 
+    def get_weights_gradients(self):
+        return self._embed_layer.get_weights_gradients()
+
 
 class NegativeSamplingLossLayer(ILayer):
     _negative_sampler: ISampler
@@ -339,15 +340,12 @@ class NegativeSamplingLossLayer(ILayer):
         self._negative_sampler = SimpleSampler(
             vocab=vocab, sample_size=sample_size, power=power
         )
-        self.weights = out_matrix
         loss_layers = self._loss_layers = []
         embed_dot_layers = self._embed_dot_layers = []
-        weight_gradients = self.weight_gradients = []
-        for index in range(sample_size + 1):
+        for _ in range(sample_size + 1):
             loss_layers.append(SigmoidLossLayer())
             embed_dot_layer = EmbeddingDotLayer(out_matrix)
             embed_dot_layers.append(embed_dot_layer)
-            weight_gradients.append(embed_dot_layer.weight_gradients)
 
     def forward(self, in_vec: np.ndarray, target: np.ndarray):
         batch_size = target.shape[0]
@@ -374,5 +372,26 @@ class NegativeSamplingLossLayer(ILayer):
         for l0, l1 in zip(self._loss_layers, self._embed_dot_layers):
             dscore = l0.backward(dout)
             dh += l1.backward(dscore)
-
         return dh
+
+    def get_weights_gradients(self):
+        weights = []
+        gradients = []
+        for layer in self._embed_dot_layers:
+            l_weights, l_gradients = layer.get_weights_gradients()
+            weights.extend(l_weights)
+            gradients.extend(l_gradients)
+        return (weights, gradients)
+
+
+class RNNLayer(ILayer):
+    # h = tanh(x*wx + h_prev*wh + b)
+    def __init__(self, wx, wh, b):
+
+        pass
+
+    def forward(self, x, h_prev):
+        pass
+
+    def backward(self, dout):
+        pass
