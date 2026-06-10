@@ -6,7 +6,7 @@ from src.dataset.ptb import ptb
 from pympler import asizeof
 from src.common.models import CbowModel
 from src.common.optimizers import AdamOptimizer
-from src.common.trainer import Trainer
+from common.trainers import Trainer
 import pickle
 import numpy as np
 

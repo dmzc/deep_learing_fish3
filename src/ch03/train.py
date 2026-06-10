@@ -5,7 +5,7 @@ from src.common.vocab import Vocab
 from src.dataset.ptb import ptb
 from src.common.models import SimpleCbowModel
 from src.common.optimizers import AdamOptimizer
-from src.common.trainer import Trainer
+from common.trainers import Trainer
 from pympler import asizeof
 
 hidden_size = 5

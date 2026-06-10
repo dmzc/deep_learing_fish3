@@ -306,3 +306,9 @@ class Vocab:
         word_count = np.bincount(corpus, minlength=self.get_size())
         self.__probability = word_count / len(corpus)
         return self.__probability
+
+    def get_rnn_data(self) -> np.ndarray:
+
+        # self.__corpus取除最后一个词之外的所有词。self.__corpus[1:]取除第一个词之外的所有词
+        # 因为rnn的任务是预测下一个词，所以这么处理，按相同index去取时，t永远是x的下一个词
+        return self.__corpus[:-1], self.__corpus[1:]

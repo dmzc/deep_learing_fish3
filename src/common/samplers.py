@@ -1,6 +1,6 @@
 from src.common.vocab import Vocab
-from abc import ABC, abstractmethod
 import numpy as np
+from abc import ABC
 
 
 class ISampler(ABC):
@@ -13,7 +13,6 @@ class ISampler(ABC):
         self._power = power
         self._sample_size = sample_size
 
-    @abstractmethod
     def do_sample(self, word: np.ndarray) -> np.ndarray:
         pass
 

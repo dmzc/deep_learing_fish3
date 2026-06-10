@@ -49,6 +49,14 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "module": "src.ch04.train"
+        },
+        {
+            "name": "src.ch05.train",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "module": "src.ch05.train"
         }
     ]
 }

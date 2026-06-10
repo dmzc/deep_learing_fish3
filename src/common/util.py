@@ -80,3 +80,17 @@ def softmax(x: np.typing.NDArray[np.number]):
 
     x = x - np.max(x)  # 溢出对策
     return np.exp(x) / np.sum(np.exp(x))
+
+
+def clip_grads(grads: np.ndarray, max_grad: int):
+    if max_grad is None:
+        return
+    total_grad = 0
+    for grad in grads:
+        total_grad += np.sum(grad**2)
+    total_grad = np.sqrt(total_grad)
+
+    rate = max_grad / (total_grad + 1e-6)
+    if rate < 1:
+        for grad in grads:
+            grad *= rate

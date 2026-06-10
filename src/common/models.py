@@ -1,14 +1,17 @@
 import numpy as np
-from abc import ABC, abstractmethod
+from abc import ABC
 from src.common.layers import (
     ILayer,
     AffineLayer,
     SoftmaxLossLayer,
     EmbeddingLayer,
     NegativeSamplingLossLayer,
+    TimeEmbeddingLayer,
+    TimeRNNLayer,
+    TimeAffineLayer,
+    TimeSoftmaxLossLayer,
 )
 from src.common.vocab import Vocab
-from src.common.decorators.timer import timer
 
 
 class IModel(ABC):
@@ -18,13 +21,10 @@ class IModel(ABC):
     # 所有层的梯度
     _gradients: list[np.ndarray]
 
-    @abstractmethod
     def get_weights_gradients() -> tuple[list[np.ndarray], list[np.ndarray]]: ...
 
-    @abstractmethod
     def forward(self, contexts, target) -> float: ...
 
-    @abstractmethod
     def backward(self, dout) -> None: ...
 
 
@@ -37,23 +37,26 @@ class AbstractModel(IModel):
         __weightsMap = {}
         __gradientsMap = {}
 
-        def __collect(self, layer: ILayer):
+        def __collect(layer: ILayer):
             weights_grdients: tuple[list[np.ndarray], list[np.ndarray]] = (
                 layer.get_weights_gradients()
             )
-            if weights_grdients is None:
-                return
-            weights = weights_grdients[0]
-            gradients = weights_grdients[1]
-            for index, weight in enumerate(weights):
-                key = id(weight)
-                gradient = gradients[index]
-                if key in __weightsMap:
-                    t_gradient = __gradientsMap[key]
-                    t_gradient += gradient
-                else:
-                    __weightsMap[key] = weight.copy()
-                    __gradientsMap[key] = gradient.copy()
+            if weights_grdients is not None:
+                weights = weights_grdients[0]
+                gradients = weights_grdients[1]
+                for index, weight in enumerate(weights):
+                    key = id(weight)
+                    gradient = gradients[index]
+                    if key in __weightsMap:
+                        t_gradient = __gradientsMap[key]
+                        t_gradient += gradient
+                    else:
+                        __weightsMap[key] = weight.copy()
+                        __gradientsMap[key] = gradient.copy()
+            sub_layers = layer.get_sub_weight_layers()
+            if sub_layers is not None:
+                for s_layer in sub_layers:
+                    __collect(s_layer)
 
         for layer in layers:
             __collect(layer)
@@ -167,12 +170,44 @@ class CbowModel(AbstractModel):
 
 
 class SimpleRNNModel(AbstractModel):
-    def __init__(self):
+    __layers: list[ILayer]
+    __loss_layer: ILayer
 
-        pass
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size):
 
-    def forward(self, contexts, target):
-        pass
+        embed_w = (np.random.randn(vocab_size, wordvec_size) / 100).astype(np.float32)
+        rnn_wx: np.ndarray = np.random.randn(wordvec_size, hidden_size) / np.sqrt(
+            wordvec_size
+        )
+        rnn_wx = rnn_wx.astype(np.float32)
+        rnn_wh: np.ndarray = np.random.randn(hidden_size, hidden_size) / np.sqrt(
+            wordvec_size
+        )
+        rnn_wh = rnn_wh.astype(np.float32)
+        rnn_b = np.zeros(hidden_size).astype(np.float32)
+        affine_w: np.ndarray = np.random.randn(hidden_size, vocab_size) / np.sqrt(
+            hidden_size
+        )
+        affine_w = affine_w.astype(np.float32)
+        affine_b = np.zeros(vocab_size).astype(np.float32)
 
-    def backward(self, dout):
-        pass
+        self.__layers = [
+            TimeEmbeddingLayer(embed_w),
+            TimeRNNLayer(wx=rnn_wx, wh=rnn_wh, b=rnn_b),
+            TimeAffineLayer(weight=affine_w, bias=affine_b),
+        ]
+        self.__loss_layer = TimeSoftmaxLossLayer()
+
+    def forward(self, xs: np.ndarray, ts: np.ndarray):
+        for layer in self.__layers:
+            xs = layer.forward(xs)
+        return self.__loss_layer.forward(xs, ts)
+
+    def backward(self, dout=1):
+        dout = self.__loss_layer.backward(dout)
+        for layer in reversed(self.__layers):
+            dout = layer.backward(dout)
+        return dout
+
+    def get_weight_layers(self):
+        return self.__layers
