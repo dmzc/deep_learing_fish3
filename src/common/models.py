@@ -10,6 +10,7 @@ from src.common.layers import (
     TimeRNNLayer,
     TimeAffineLayer,
     TimeSoftmaxLossLayer,
+    LSTMLayer
 )
 from src.common.vocab import Vocab
 
@@ -60,7 +61,7 @@ class AbstractModel(IModel):
 
         for layer in layers:
             __collect(layer)
-
+        LSTMLayer
         weights = []
         gradients = []
         for key in __weightsMap:
@@ -194,7 +195,7 @@ class SimpleRNNModel(AbstractModel):
         self.__layers = [
             TimeEmbeddingLayer(embed_w),
             TimeRNNLayer(wx=rnn_wx, wh=rnn_wh, b=rnn_b),
-            TimeAffineLayer(weight=affine_w, bias=affine_b),
+            TimeAffineLayer(wx=affine_w, wb=affine_b),
         ]
         self.__loss_layer = TimeSoftmaxLossLayer()
 

@@ -14,7 +14,7 @@ from src.common.samplers import ISampler, SimpleSampler
 class ILayer(ABC):
     def get_weights_gradients(self) -> tuple[list[np.ndarray], list[np.ndarray]]: ...
 
-    def forward(self, x: np.ndarray, train_flag=False) -> np.ndarray: ...
+    def forward(self, x: np.ndarray) -> np.ndarray: ...
 
     def backward(self, dout: np.ndarray | float) -> np.ndarray: ...
 
@@ -51,7 +51,7 @@ class SigmodLayer(ILayer):
     def __init__(self):
         self.out = None
 
-    def forward(self, x, train_flag=False):
+    def forward(self, x):
         out = 1 / (1 + np.exp(-x))
         self.out = out
         return out
@@ -67,43 +67,43 @@ class SigmodLayer(ILayer):
 
 
 class AffineLayer(ILayer):
-    weights: np.ndarray
-    weight_gradients: np.ndarray
-    bias: np.ndarray
-    bias_gradients: np.ndarray
+    __wx: np.ndarray
+    __wx_gradient: np.ndarray
+    __wb: np.ndarray
+    __wb_gradient: np.ndarray
 
-    x: np.ndarray
+    __x: np.ndarray
 
     def __init__(self, W, b=None):
         """
         不是所有层都需要偏置，训练word2vec时就不需要
         """
-        self.weights = W
-        self.weight_gradients = np.zeros_like(W)
+        self.__wx = W
+        self.__wx_gradient = np.zeros_like(W)
         if b is not None:
-            self.bias = b
-            self.bias_gradients = np.zeros_like(b)
+            self.__wb = b
+            self.__wb_gradient = np.zeros_like(b)
 
     def forward(self, x):
-        self.x = x
-        malmul = np.dot(x, self.weights)
-        if self.bias is None:
+        self.__x = x
+        malmul = np.dot(x, self.__wx)
+        if self.__wb is None:
             return malmul
-        return malmul + self.bias
+        return malmul + self.__wb
 
     def backward(self, dout):
         # 计算dx是为了向前传播
-        dx: np.ndarray = np.dot(dout, self.weights.T)
-        self.weight_gradients[:] = np.dot(self.x.T, dout)
-        if self.bias is not None:
-            self.bias_gradients[:] = np.sum(dout, axis=0)
+        dx: np.ndarray = np.dot(dout, self.__wx.T)
+        self.__wx_gradient[:] = np.dot(self.__x.T, dout)
+        if self.__wb is not None:
+            self.__wb_gradient[:] = np.sum(dout, axis=0)
         return dx
 
     def get_weights_gradients(self):
-        if self.bias is not None:
+        if self.__wb is not None:
             return (
-                [self.weights, self.bias],
-                [self.weight_gradients, self.bias_gradients],
+                [self.__wx, self.__wb],
+                [self.__wx_gradient, self.__wb_gradient],
             )
 
 
@@ -113,7 +113,7 @@ class SoftmaxLossLayer(ILayer):
         self.y = None
         self.t = None
 
-    def forward(self, x, t, train_flag=False):
+    def forward(self, x, t):
         self.t = t
         self.y = softmax(x)
         self.loss = cross_entropy(self.y, self.t)
@@ -154,28 +154,28 @@ class SigmoidLossLayer(ILayer):
         return dx
 
 
-class DropoutLayer(ILayer):
-    """
-    Dropout层，用于防止过拟合，效果相当于集成学习中，多个优化器训然后平均的效
-    果。
-    训练时，随机将输入的一些元素设为0，从而减少模型对某些特征的依赖，防止过拟合。
-    推理时，要将所有元素乘以(1 - dropout_ratio)，从而保持输出的期望不变。
-    """
+# class DropoutLayer(ILayer):
+#     """
+#     Dropout层，用于防止过拟合，效果相当于集成学习中，多个优化器训然后平均的效
+#     果。
+#     训练时，随机将输入的一些元素设为0，从而减少模型对某些特征的依赖，防止过拟合。
+#     推理时，要将所有元素乘以(1 - dropout_ratio)，从而保持输出的期望不变。
+#     """
 
-    def __init__(self, dropout_ratio=0.5):
-        self.dropout_ratio = dropout_ratio
-        self.mask = None
+#     def __init__(self, dropout_ratio=0.5):
+#         self.dropout_ratio = dropout_ratio
+#         self.mask = None
 
-    def forward(self, x, train_flag=True):
-        if train_flag:
-            self.mask = np.random.rand(*x.shape) > self.dropout_ratio
-            return x * self.mask
-        else:
-            # 推理时不丢弃，但是要缩放下尺度
-            return x * (1.0 - self.dropout_ratio)
+#     def forward(self, x, train_flag=True):
+#         if train_flag:
+#             self.mask = np.random.rand(*x.shape) > self.dropout_ratio
+#             return x * self.mask
+#         else:
+#             # 推理时不丢弃，但是要缩放下尺度
+#             return x * (1.0 - self.dropout_ratio)
 
-    def backward(self, dout):
-        return dout * self.mask
+#     def backward(self, dout):
+#         return dout * self.mask
 
 
 class BatchNormalizationLayer(ILayer):
@@ -275,32 +275,32 @@ class BatchNormalizationLayer(ILayer):
 
 
 class EmbeddingLayer(ILayer):
-    _index: np.ndarray
-    _weights: np.ndarray
-    _weight_gradients: np.ndarray
+    __x: np.ndarray
+    __wx: np.ndarray
+    __wx_gradient: np.ndarray
     """
     词嵌入层，避免用one-hot变量（而是索引）来运算
     """
 
     def __init__(self, W: np.ndarray):
-        self._weights = W
-        self._index = None
-        self._weight_gradients = np.zeros_like(W)
+        self.__wx = W
+        self.__x = None
+        self.__wx_gradient = np.zeros_like(W)
 
-    def forward(self, index: np.ndarray):
-        self._index = index
-        return self._weights[index]
+    def forward(self, x: np.ndarray):
+        self.__x = x
+        return self.__wx[x]
 
     def backward(self, dout):
-        weight_gradients = self._weight_gradients
+        wx_gradient = self.__wx_gradient
         # 每次反向传播时都要清空上次的，避免累加
-        weight_gradients[...] = 0
+        wx_gradient[...] = 0
 
         # 根据索引，将dout对应行累加到weight_gradients中（重复索引自动累加）
-        np.add.at(weight_gradients, self._index, dout)
+        np.add.at(wx_gradient, self.__x, dout)
 
     def get_weights_gradients(self):
-        return ([self._weights], [self._weight_gradients])
+        return ([self.__wx], [self.__wx_gradient])
 
 
 class EmbeddingDotLayer(ILayer):
@@ -381,32 +381,30 @@ class NegativeSamplingLossLayer(ILayer):
 
 class RNNLayer(ILayer):
     # h = tanh(x*wx + h_prev*wh + b)
-    __x_weight: np.ndarray
-    __h_weight: np.ndarray
-    __bias_weight: np.ndarray
-    __x_gradient: np.ndarray
-    __h_gradient: np.ndarray
-    __bias_gradient: np.ndarray
+    __wx: np.ndarray
+    __wh: np.ndarray
+    __wb: np.ndarray
+    __wx_gradient: np.ndarray
+    __wh_gradient: np.ndarray
+    __wb_gradient: np.ndarray
 
     __h_prev: np.ndarray
     __h_next: np.ndarray
     __x: np.ndarray
 
     def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray):
-        self.__x_weight = wx
-        self.__h_weight = wh
-        self.__bias_weight = b
-        self.__x_gradient = np.zeros_like(wx)
-        self.__h_gradient = np.zeros_like(wh)
-        self.__bias_gradient = np.zeros_like(b)
+        self.__wx = wx
+        self.__wh = wh
+        self.__wb = b
+        self.__wx_gradient = np.zeros_like(wx)
+        self.__wh_gradient = np.zeros_like(wh)
+        self.__wb_gradient = np.zeros_like(b)
 
     def forward(self, x: np.ndarray, h_prev: np.ndarray):
         self.__x = x
         self.__h_prev = h_prev
         h_next = self.__h_next = np.tanh(
-            np.dot(h_prev, self.__h_weight)
-            + np.dot(x, self.__x_weight)
-            + self.__bias_weight
+            np.dot(h_prev, self.__wh) + np.dot(x, self.__wx) + self.__wb
         )
         return h_next
 
@@ -415,29 +413,59 @@ class RNNLayer(ILayer):
         d_tan = dh_next * (1 - self.__h_next**2)
 
         # 偏置梯度，前向时偏置会按数据批次扩充为多行，所以此处也需要加在一起
-        self.__bias_gradient[:] = np.sum(d_tan, axis=0)
-        self.__h_gradient[:] = np.dot(self.__h_prev.T, d_tan)
-        self.__x_gradient[:] = np.dot(self.__x.T, d_tan)
+        self.__wb_gradient[:] = np.sum(d_tan, axis=0)
+        self.__wh_gradient[:] = np.dot(self.__h_prev.T, d_tan)
+        self.__wx_gradient[:] = np.dot(self.__x.T, d_tan)
 
         # 有两个输入，所以返回两个梯度
         return (
-            np.dot(d_tan, self.__x_weight.T),
-            np.dot(d_tan, self.__h_weight.T),
+            np.dot(d_tan, self.__wx.T),
+            np.dot(d_tan, self.__wh.T),
         )
 
 
+class LSTMLayer(ILayer):
+    """
+    wx - 输入x的权重。[遗忘门wx, 输入门wx, 输出门wx, 新信息变换权重]
+
+    wh - 类似wx。
+
+    b - 类似wx。
+
+    因为这些门或新信息，都是根据x(t) 和h(t-1)经过仿射变换来的，所以其权重合成一
+    个大矩阵来操作，效率更高
+    """
+
+    __wx: np.ndarray
+    __wh: np.ndarray
+    __wb: np.ndarray
+
+    __wx_gradient: np.ndarray
+    __wh_gradient: np.ndarray
+    __wb__gradient: np.ndarray
+
+    def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray):
+        pass
+
+    def forward(self, x):
+        pass
+
+    def backward(self, dout):
+        return super().backward(dout)
+
+
 class TimeRNNLayer(ILayer):
-    __x_weight: np.ndarray
-    __h_weight: np.ndarray
-    __bias_weight: np.ndarray
+    __wx: np.ndarray
+    __wh: np.ndarray
+    __wb: np.ndarray
     __h: np.ndarray
     __layers: list[ILayer]
     __stateful: bool
 
     def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray, stateful=True):
-        self.__x_weight = wx
-        self.__h_weight = wh
-        self.__bias_weight = b
+        self.__wx = wx
+        self.__wh = wh
+        self.__wb = b
         self.__stateful = stateful
         self.__layers = []
         self.__h = None
@@ -445,7 +473,7 @@ class TimeRNNLayer(ILayer):
     def forward(self, x: np.ndarray):
         # xs -> (N, T, D)，其中N为批次数，T为时序数，D为词向量维度
         N, T, D = x.shape
-        D, H = self.__x_weight.shape
+        D, H = self.__wx.shape
 
         # 记录每个时刻的隐藏状态
         hs = np.empty((N, T, H), dtype=np.float32)
@@ -455,9 +483,9 @@ class TimeRNNLayer(ILayer):
 
         for t in range(T):
             layer = RNNLayer(
-                self.__x_weight,
-                self.__h_weight,
-                self.__bias_weight,
+                self.__wx,
+                self.__wh,
+                self.__wb,
             )
             self.__h = layer.forward(x[:, t, :], self.__h)
             hs[:, t, :] = self.__h
@@ -467,7 +495,7 @@ class TimeRNNLayer(ILayer):
 
     def backward(self, dhs):
         N, T, H = dhs.shape
-        D, H = self.__x_weight.shape
+        D, H = self.__wx.shape
 
         dxs = np.empty((N, T, D), dtype=np.float32)
         dh = 0
@@ -482,27 +510,26 @@ class TimeRNNLayer(ILayer):
 
 
 class TimeEmbeddingLayer(ILayer):
-    __weight: np.ndarray
+    __wx: np.ndarray
     __layers: list[ILayer]
 
-    def __init__(self, weight: np.ndarray):
-        self.__weight = weight
+    def __init__(self, wx: np.ndarray):
+        self.__wx = wx
 
     def forward(self, xs: np.ndarray):
         N, T = xs.shape
-        V, D = self.__weight.shape
+        V, D = self.__wx.shape
 
         out = np.empty((N, T, D), dtype=np.float32)
         layers = self.__layers = []
 
         for t in range(T):
-            layer = EmbeddingLayer(self.__weight)
+            layer = EmbeddingLayer(self.__wx)
             layers.append(layer)
             out[:, t, :] = layer.forward(xs[:, t])
         return out
 
     def backward(self, dout):
-        N, T, D = dout.shape
         for t, layer in enumerate(self.__layers):
             layer.backward(dout=dout[:, t, :])
 
@@ -511,26 +538,26 @@ class TimeEmbeddingLayer(ILayer):
 
 
 class TimeAffineLayer(ILayer):
-    __weight: np.ndarray
-    __gradient: np.ndarray
-    __bias_weight: np.ndarray
-    __bias_gradient: np.ndarray
+    __wx: np.ndarray
+    __wx_gradient: np.ndarray
+    __wb: np.ndarray
+    __wb_gradient: np.ndarray
     __x: np.ndarray
 
-    def __init__(self, weight: np.ndarray, bias: np.ndarray = None):
-        self.__weight = weight
-        self.__gradient = np.zeros_like(weight)
-        self.__bias_weight = bias
-        if bias is not None:
-            self.__bias_gradient = np.zeros_like(bias)
+    def __init__(self, wx: np.ndarray, wb: np.ndarray = None):
+        self.__wx = wx
+        self.__wx_gradient = np.zeros_like(wx)
+        self.__wb = wb
+        if wb is not None:
+            self.__wb_gradient = np.zeros_like(wb)
 
     def forward(self, xs: np.ndarray):
         self.__x = xs
         N, T, D = xs.shape
         rx = xs.reshape(N * T, -1)
-        out: np.ndarray = np.dot(rx, self.__weight)
-        if self.__bias_weight is not None:
-            out = out + self.__bias_weight
+        out: np.ndarray = np.dot(rx, self.__wx)
+        if self.__wb is not None:
+            out = out + self.__wb
         return out.reshape(N, T, -1)
 
     def backward(self, ds: np.ndarray):
@@ -538,18 +565,18 @@ class TimeAffineLayer(ILayer):
         N, T, D = x.shape
         ds = ds.reshape(N * T, -1)
         rx = x.reshape(N * T, -1)
-        self.__gradient[:] = np.dot(rx.T, ds)
-        if self.__bias_weight is not None:
-            self.__bias_gradient[:] = np.sum(ds, axis=0)
-        dx: np.ndarray = np.dot(ds, self.__weight.T)
+        self.__wx_gradient[:] = np.dot(rx.T, ds)
+        if self.__wb is not None:
+            self.__wb_gradient[:] = np.sum(ds, axis=0)
+        dx: np.ndarray = np.dot(ds, self.__wx.T)
         return dx.reshape(N, T, D)
 
     def get_weights_gradients(self):
-        if self.__bias_weight is None:
-            return ([self.__weight], [self.__gradient])
+        if self.__wb is None:
+            return ([self.__wx], [self.__wx_gradient])
         return (
-            [self.__weight, self.__bias_weight],
-            [self.__gradient, self.__bias_gradient],
+            [self.__wx, self.__wb],
+            [self.__wx_gradient, self.__wb_gradient],
         )
 
 
