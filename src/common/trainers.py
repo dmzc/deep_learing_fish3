@@ -105,7 +105,8 @@ class RNNTrainer:
     ):
         self.__eval_interval = eval_interval
         data_size = len(xs)
-        max_iters = data_size // (batch_size * time_size)
+        # max_iters = data_size // (batch_size * time_size)
+        max_iters = 10
         start_time = time.time()
         offset = 0
         model = self.__model

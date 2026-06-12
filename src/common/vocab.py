@@ -99,6 +99,9 @@ class Vocab:
     def get_size(self) -> int:
         return len(self.__id_word)
 
+    def get_corpus_size(self) -> int:
+        return len(self.__corpus)
+
     def get_current_window_size(self) -> int:
         return self.__current_window_size
 

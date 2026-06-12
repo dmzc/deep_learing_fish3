@@ -10,7 +10,8 @@ from src.common.layers import (
     TimeRNNLayer,
     TimeAffineLayer,
     TimeSoftmaxLossLayer,
-    LSTMLayer
+    TimeLSTMLayer,
+    TimeDropoutLayer,
 )
 from src.common.vocab import Vocab
 
@@ -61,7 +62,6 @@ class AbstractModel(IModel):
 
         for layer in layers:
             __collect(layer)
-        LSTMLayer
         weights = []
         gradients = []
         for key in __weightsMap:
@@ -170,7 +170,7 @@ class CbowModel(AbstractModel):
             layer.backward(dout)
 
 
-class SimpleRNNModel(AbstractModel):
+class RNNModel(AbstractModel):
     __layers: list[ILayer]
     __loss_layer: ILayer
 
@@ -212,3 +212,79 @@ class SimpleRNNModel(AbstractModel):
 
     def get_weight_layers(self):
         return self.__layers
+
+
+class LSTModel(AbstractModel):
+    __layers: list[ILayer]
+
+    __dropout_layers: list[TimeDropoutLayer]
+
+    __lstm_layers: list[TimeLSTMLayer]
+
+    __loss_layer: ILayer
+
+    def __init__(
+        self, vocab_size: int, word_vec_size: int, hidden_size: int, dropout_ratio=0.5
+    ):
+        rn = np.random.randn
+        temp: np.ndarray
+
+        temp = rn(vocab_size, word_vec_size) / 100
+        embed_w = temp.astype(np.float32)
+
+        temp = rn(word_vec_size, 4 * hidden_size) / np.sqrt(word_vec_size)
+        lstm_wx1 = temp.astype(np.float32)
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wxh1 = temp.astype(np.float32)
+        lstm_b1 = np.zeros(4 * hidden_size).astype(np.float32)
+
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wx2 = temp.astype(np.float32)
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wxh2 = temp.astype(np.float32)
+        lstm_b2 = np.zeros(4 * hidden_size).astype(np.float32)
+
+        affine_b = np.zeros(vocab_size).astype(np.float32)
+
+        self.__layers = [
+            TimeEmbeddingLayer(embed_w),
+            TimeDropoutLayer(dropout_ratio=dropout_ratio),
+            TimeLSTMLayer(wx=lstm_wx1, wh=lstm_wxh1, wb=lstm_b1, stateful=True),
+            TimeDropoutLayer(dropout_ratio=dropout_ratio),
+            TimeLSTMLayer(wx=lstm_wx2, wh=lstm_wxh2, wb=lstm_b2, stateful=True),
+            TimeDropoutLayer(dropout_ratio=dropout_ratio),
+            TimeAffineLayer(embed_w, affine_b, weight_typing=True),
+        ]
+        self.__loss_layer = TimeSoftmaxLossLayer()
+        self.__dropout_layers = [self.__layers[1], self.__layers[3], self.__layers[5]]
+        self.__lstm_layers = [self.__layers[2], self.__layers[4]]
+
+    def predict(self, xs):
+        for layer in self.__dropout_layers:
+            layer.set_training_state(False)
+        score = self._forward_no_loss(xs)
+        for layer in self.__dropout_layers:
+            layer.set_training_state(True)
+        return score
+
+    def forward(self, xs, ts):
+        score = self._forward_no_loss(xs)
+        return self.__loss_layer.forward(score, ts)
+
+    def backward(self, dout=1):
+        dout = self.__loss_layer.backward(dout)
+        for layer in reversed(self.__layers):
+            dout = layer.backward(dout)
+        return dout
+
+    def _forward_no_loss(self, xs):
+        for layer in self.__layers:
+            xs = layer.forward(xs)
+        return xs
+
+    def get_weight_layers(self):
+        return self.__layers
+
+    def reset_state(self):
+        for layer in self.__lstm_layers:
+            layer.reset_state()

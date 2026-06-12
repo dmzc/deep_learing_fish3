@@ -10,12 +10,13 @@ ptb_dir = Path(__file__).parent
 def load_data(
     type: DatasetType = DatasetType.TRAIN, use_cache=True, data_size=None
 ) -> Vocab:
-    vocab_file = ptb_dir / f"{type.value}.vocab.pkl"
+    # vocab_file = ptb_dir / f"{type.value}.vocab.pkl"  
+    # TODO:感觉cache没什么用
 
-    if Path.exists(vocab_file) and use_cache:
-        with open(vocab_file, "rb") as fh:
-            vocab: Vocab = pickle.load(fh)
-        return vocab
+    # if Path.exists(vocab_file) and use_cache:
+    #     with open(vocab_file, "rb") as fh:
+    #         vocab: Vocab = pickle.load(fh)
+    #     return vocab
 
     data_file = ptb_dir / f"ptb.{type.value}.txt"
     with open(data_file, "r", encoding="utf-8") as fh:
@@ -25,8 +26,8 @@ def load_data(
             text = text[:data_size]
         vocab.build(text)
         # wb是以二进制形式打开，会全量覆盖，追加应该用ab
-        with open(vocab_file, "wb") as fh:
-            pickle.dump(vocab, fh)
+        # with open(vocab_file, "wb") as fh:
+        #     pickle.dump(vocab, fh)
     return vocab
 
 

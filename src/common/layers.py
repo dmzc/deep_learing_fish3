@@ -4,7 +4,7 @@ import numpy as np
 
 from abc import ABC
 
-from src.common.util import softmax, cross_entropy
+from src.common.util import softmax, cross_entropy, sigmoid
 
 from src.common.vocab import Vocab
 
@@ -426,7 +426,7 @@ class RNNLayer(ILayer):
 
 class LSTMLayer(ILayer):
     """
-    wx - 输入x的权重。[遗忘门wx, 输入门wx, 输出门wx, 新信息变换权重]
+    wx - 输入x的权重。[遗忘门wx(f) - 输入门wx(i) - 输出门wx(o) - 新信息变换门(g)]，四个小矩阵拼成一个大矩阵（行数不变，列数扩充）
 
     wh - 类似wx。
 
@@ -442,16 +442,155 @@ class LSTMLayer(ILayer):
 
     __wx_gradient: np.ndarray
     __wh_gradient: np.ndarray
-    __wb__gradient: np.ndarray
+    __wb_gradient: np.ndarray
 
-    def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray):
-        pass
+    __c_prev: np.ndarray
+    __c_next: np.ndarray
+    __h_prev: np.ndarray
+    __x: np.ndarray
+    __forget_gate: np.ndarray
+    __input_gate: np.ndarray
+    __output_gate: np.ndarray
+    __input_info: np.ndarray
 
-    def forward(self, x):
-        pass
+    def __init__(self, wx: np.ndarray, wh: np.ndarray, wb: np.ndarray):
+        self.__wx = wx
+        self.__wb = wb
+        self.__wh = wh
+        self.__wx_gradient = np.zeros_like(wx)
+        self.__wh_gradient = np.zeros_like(wh)
+        self.__wb_gradient = np.zeros_like(wb)
 
-    def backward(self, dout):
-        return super().backward(dout)
+    def forward(self, x: np.ndarray, h_prev: np.ndarray, c_prev: np.ndarray):
+        self.__x = x
+        self.__h_prev = h_prev
+        self.__c_prev = c_prev
+        N, H = h_prev.shape
+        result = (
+            np.dot(x, self.__wx) + np.dot(h_prev, self.__wh) + self.__wb
+        )  # (N, D)@(D, 4H) -> (N, 4H)
+
+        self.__forget_gate = forget_gate = sigmoid(result[:, :H])  # 遗忘门 0~1
+        self.__input_gate = input_gate = sigmoid(result[:, H : 2 * H])  # 输入门 0~1
+        self.__output_gate = output_gate = sigmoid(
+            result[:, 2 * H : 3 * H]
+        )  # 输出门 0~1
+        self.__input_info = input_info = np.tanh(
+            result[:, 3 * H :]
+        )  # 输入信息门的输入信息 -1~1
+
+        self.__c_next = c_next = forget_gate * c_prev + input_gate * input_info
+        h_next = output_gate * np.tanh(c_next)
+        return h_next, c_next
+
+    def backward(self, dh: np.ndarray, dc: np.ndarray):
+
+        tanh_c_next = np.tanh(self.__c_next)
+
+        # h_next = output_gate * tanh(c_next)
+        # c_next = forget_gate * c_prev + input_gate * input_info
+
+        # c_next作为y时的前置梯度，总共有两个分支，一个是dh，一个dc
+        ds = dc + (dh * self.__output_gate) * (1 - tanh_c_next**2)
+
+        di = ds * self.__input_info
+        dg = ds * self.__input_gate
+        df = ds * self.__c_prev
+        do = dh * tanh_c_next
+
+        # forget_gate = sigmoid(result[, H:])。
+        # y = sigmoid(x),dy/dx = y * (1-y)
+        di *= self.__input_gate * (1 - self.__input_gate)
+        df *= self.__forget_gate * (1 - self.__forget_gate)
+        do *= self.__output_gate * (1 - self.__output_gate)
+        dg *= 1 - self.__input_info**2
+
+        dA = np.hstack((df, di, do, dg))
+
+        self.__wh_gradient[:] = np.dot(self.__h_prev.T, dA)
+        self.__wx_gradient[:] = np.dot(self.__x.T, dA)
+        self.__wb_gradient[:] = dA.sum(axis=0)
+
+        # dx, dh_prev, dc_prev
+        return np.dot(dA, self.__wx.T), np.dot(dA, self.__wh.T), ds * self.__forget_gate
+
+    def get_weights_gradients(self):
+        return (
+            [self.__wh, self.__wx, self.__wb],
+            [self.__wh_gradient, self.__wx_gradient, self.__wb_gradient],
+        )
+
+
+class TimeLSTMLayer(ILayer):
+    """
+    wx - 输入x的权重。[遗忘门wx(f) - 输入门wx(i) - 输出门wx(o) - 新信息变换门(g)]，四个小矩阵拼成一个大矩阵（行数不变，列数扩充）
+
+    wh - 类似wx。
+
+    b - 类似wx。
+
+    因为这些门或新信息，都是根据x(t) 和h(t-1)经过仿射变换来的，所以其权重合成一
+    个大矩阵来操作，效率更高
+    """
+
+    __wx: np.ndarray
+    __wh: np.ndarray
+    __wb: np.ndarray
+    __stateful: bool
+    __c: np.ndarray
+    __h: np.ndarray
+    __layers: list[ILayer]
+
+    __hidden_dim: int  # 隐藏状态h的维度
+    __vec_dim: int  # 词向量维度
+
+    def __init__(self, wx: np.ndarray, wh: np.ndarray, wb: np.ndarray, stateful=False):
+        self.__wx = wx
+        self.__wb = wb
+        self.__wh = wh
+        self.__layers = []
+        self.__stateful = stateful
+        self.__vec_dim = self.__wx.shape[0]
+        self.__hidden_dim = self.__wh.shape[0]
+        self.__h = None
+        self.__c = None
+
+    def forward(self, xs):
+        N, T, D = xs.shape
+        H = self.__hidden_dim
+        if not self.__stateful or self.__h is None:
+            self.__h = np.zeros((N, H), dtype=np.float32)
+        if not self.__stateful or self.__c is None:
+            self.__c = np.zeros((N, H), dtype=np.float32)
+        hs = np.empty((N, T, H), dtype=np.float32)
+        self.__layers = []
+        for t in range(T):
+            layer = LSTMLayer(wx=self.__wx, wh=self.__wh, wb=self.__wb)
+            self.__layers.append(layer)
+            self.__h, self.__c = layer.forward(xs[:, t, :], self.__h, self.__c)
+            hs[:, t, :] = self.__h
+        return hs
+
+    def backward(self, dhs: np.ndarray):
+        N, T, H = dhs.shape
+        D = self.__vec_dim
+
+        dxs = np.empty((N, T, D), dtype=np.float32)
+        dh, dc = 0, 0
+
+        for t in reversed(range(T)):
+            layer = self.__layers[t]
+            dx, dh, dc = layer.backward(dhs[:, t, :] + dh, dc)
+            dxs[:, t, :] = dx
+
+        return dxs
+
+    def get_sub_weight_layers(self):
+        return self.__layers
+
+    def reset_state(self):
+        self.__c = None
+        self.__h = None
 
 
 class TimeRNNLayer(ILayer):
@@ -462,7 +601,7 @@ class TimeRNNLayer(ILayer):
     __layers: list[ILayer]
     __stateful: bool
 
-    def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray, stateful=True):
+    def __init__(self, wx: np.ndarray, wh: np.ndarray, b: np.ndarray, stateful=False):
         self.__wx = wx
         self.__wh = wh
         self.__wb = b
@@ -543,13 +682,25 @@ class TimeAffineLayer(ILayer):
     __wb: np.ndarray
     __wb_gradient: np.ndarray
     __x: np.ndarray
+    __weight_typing: bool
+    __weight_typing_wx: np.ndarray
 
-    def __init__(self, wx: np.ndarray, wb: np.ndarray = None):
-        self.__wx = wx
-        self.__wx_gradient = np.zeros_like(wx)
+    """
+    传递weight_typing时，代表和embedding共享了w权重（准确来说是embedding的w矩阵
+    的转置），此时wx是embedding的w矩阵
+    """
+
+    def __init__(self, wx: np.ndarray, wb: np.ndarray = None, weight_typing=False):
+        self.__weight_typing = weight_typing
+        if weight_typing:
+            self.__weight_typing_wx = wx
+            self.__wx = wx.T
+        else:
+            self.__wx = wx
+        self.__wx_gradient = np.zeros_like(self.__wx)
         self.__wb = wb
         if wb is not None:
-            self.__wb_gradient = np.zeros_like(wb)
+            self.__wb_gradient = np.zeros_like(self.__wb)
 
     def forward(self, xs: np.ndarray):
         self.__x = xs
@@ -572,11 +723,19 @@ class TimeAffineLayer(ILayer):
         return dx.reshape(N, T, D)
 
     def get_weights_gradients(self):
+        wx, wx_gradient = None, None
+        if self.__weight_typing:
+            wx = self.__weight_typing_wx
+            wx_gradient = self.__wx_gradient.T
+        else:
+            wx = self.__wx
+            wx_gradient = self.__wx_gradient
+
         if self.__wb is None:
-            return ([self.__wx], [self.__wx_gradient])
+            return ([wx], [wx_gradient])
         return (
-            [self.__wx, self.__wb],
-            [self.__wx_gradient, self.__wb_gradient],
+            [wx, self.__wb],
+            [wx_gradient, self.__wb_gradient],
         )
 
 
@@ -624,3 +783,33 @@ class TimeSoftmaxLossLayer(ILayer):
         # dx -> (N*T ,V)，mask -> (N*T)。自动广播不匹配，所以需要先将mask补齐为(N*T,1)
         dx *= mask[:, np.newaxis]
         return dx
+
+
+class TimeDropoutLayer(ILayer):
+    __dropout_ratio: float
+
+    __training: bool
+
+    __mask: np.ndarray
+
+    def __init__(self, dropout_ratio: float = 0.5):
+        self.__dropout_ratio = dropout_ratio
+        self.__mask = None
+        self.set_training_state(True)
+
+    def forward(self, xs: np.ndarray):
+        if not self.__training:  # 推理阶段，不启用dropout
+            return xs
+
+        # 生成随机数，然后根据丢弃比例形成bool值数组
+        flg = np.random.rand(*xs.shape) > self.__dropout_ratio
+        # 计算缩放比例，推理用的是全部神经元，训练用到的只是（1.0 - self.__dropout_ratio）权重，所以需要缩放数据
+        scale = 1 / (1.0 - self.__dropout_ratio)
+        self.__mask = flg.astype(np.float32) * scale
+        return xs * self.__mask
+
+    def backward(self, dout):
+        return dout * self.__mask
+
+    def set_training_state(self, training: bool):
+        self.__training = training
