@@ -8,7 +8,7 @@ from src.common.trainers import RNNTrainer
 
 # from common.util import eval_perplexity, to_gpu
 from src.dataset.ptb import ptb
-from src.common.models import LSTModel
+from src.common.models import LSTMModel, LSTMModelParams
 from src.common.enums.dataset_type import DatasetType
 
 # 设定超参数
@@ -29,7 +29,14 @@ test_vocab = ptb.load_data(use_cache=False, type=DatasetType.TEST)
 vocab_size = vocab.get_size()
 xs, ts = vocab.get_rnn_data()
 
-model = LSTModel(vocab_size, wordvec_size, hidden_size, dropout)
+model = LSTMModel(
+    LSTMModelParams(
+        vocab_size=vocab_size,
+        wordvec_size=wordvec_size,
+        hiddent_size=hidden_size,
+        dropout_ratio=dropout,
+    )
+)
 optimizer = SGDOptimizer(lr)
 trainer = RNNTrainer(model, optimizer)
 

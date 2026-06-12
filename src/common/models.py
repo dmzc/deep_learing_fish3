@@ -1,5 +1,6 @@
 import numpy as np
 from abc import ABC
+from dataclasses import dataclass
 from src.common.layers import (
     ILayer,
     AffineLayer,
@@ -214,7 +215,25 @@ class RNNModel(AbstractModel):
         return self.__layers
 
 
-class LSTModel(AbstractModel):
+@dataclass
+class LSTMModelParams:
+    vocab_size: int
+    wordvec_size: int
+    hiddent_size: int
+    dropout_ratio: float = 0.5
+
+    # 下面参数为权重，要不同时为None，要不同时不为空。不为空时代表是推理阶段要加载参数
+    embedding1_wx: np.ndarray = None
+    lstm1_wx: np.ndarray = None
+    lstm1_wh: np.ndarray = None
+    lstm1_wb: np.ndarray = None
+    lstm2_wx: np.ndarray = None
+    lstm2_wh: np.ndarray = None
+    lstm2_wb: np.ndarray = None
+    affine1_wb: np.ndarray = None
+
+
+class LSTMModel(AbstractModel):
     __layers: list[ILayer]
 
     __dropout_layers: list[TimeDropoutLayer]
@@ -223,37 +242,47 @@ class LSTModel(AbstractModel):
 
     __loss_layer: ILayer
 
-    def __init__(
-        self, vocab_size: int, word_vec_size: int, hidden_size: int, dropout_ratio=0.5
-    ):
+    def __init__(self, params: LSTMModelParams):
         rn = np.random.randn
         temp: np.ndarray
 
-        temp = rn(vocab_size, word_vec_size) / 100
-        embed_w = temp.astype(np.float32)
+        vocab_size: int = params.vocab_size
+        word_vec_size: int = params.wordvec_size
+        hidden_size: int = params.hiddent_size
+        dropout_ratio: float = params.dropout_ratio
 
-        temp = rn(word_vec_size, 4 * hidden_size) / np.sqrt(word_vec_size)
-        lstm_wx1 = temp.astype(np.float32)
-        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
-        lstm_wxh1 = temp.astype(np.float32)
-        lstm_b1 = np.zeros(4 * hidden_size).astype(np.float32)
+        embedding1_wx = params.embedding1_wx
+        lstm1_wx = params.lstm1_wx
+        lstm1_wh = params.lstm1_wh
+        lstm1_wb = params.lstm1_wb
+        lstm2_wx = params.lstm2_wx
+        lstm2_wh = params.lstm2_wh
+        lstm2_wb = params.lstm2_wb
+        affine1_b = params.affine1_wb
 
-        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
-        lstm_wx2 = temp.astype(np.float32)
-        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
-        lstm_wxh2 = temp.astype(np.float32)
-        lstm_b2 = np.zeros(4 * hidden_size).astype(np.float32)
-
-        affine_b = np.zeros(vocab_size).astype(np.float32)
+        if params.embedding1_wx is None:  # 非加载模式
+            temp = rn(vocab_size, word_vec_size) / 100
+            embedding1_wx = temp.astype(np.float32)
+            temp = rn(word_vec_size, 4 * hidden_size) / np.sqrt(word_vec_size)
+            lstm1_wx = temp.astype(np.float32)
+            temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+            lstm1_wh = temp.astype(np.float32)
+            lstm1_wb = np.zeros(4 * hidden_size).astype(np.float32)
+            temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+            lstm2_wx = temp.astype(np.float32)
+            temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+            lstm2_wh = temp.astype(np.float32)
+            lstm2_wb = np.zeros(4 * hidden_size).astype(np.float32)
+            affine1_b = np.zeros(vocab_size).astype(np.float32)
 
         self.__layers = [
-            TimeEmbeddingLayer(embed_w),
+            TimeEmbeddingLayer(embedding1_wx),
             TimeDropoutLayer(dropout_ratio=dropout_ratio),
-            TimeLSTMLayer(wx=lstm_wx1, wh=lstm_wxh1, wb=lstm_b1, stateful=True),
+            TimeLSTMLayer(wx=lstm1_wx, wh=lstm1_wh, wb=lstm1_wb, stateful=True),
             TimeDropoutLayer(dropout_ratio=dropout_ratio),
-            TimeLSTMLayer(wx=lstm_wx2, wh=lstm_wxh2, wb=lstm_b2, stateful=True),
+            TimeLSTMLayer(wx=lstm2_wx, wh=lstm2_wh, wb=lstm2_wb, stateful=True),
             TimeDropoutLayer(dropout_ratio=dropout_ratio),
-            TimeAffineLayer(embed_w, affine_b, weight_typing=True),
+            TimeAffineLayer(embedding1_wx, affine1_b, weight_typing=True),
         ]
         self.__loss_layer = TimeSoftmaxLossLayer()
         self.__dropout_layers = [self.__layers[1], self.__layers[3], self.__layers[5]]
