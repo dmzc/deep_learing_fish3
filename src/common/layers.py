@@ -544,6 +544,8 @@ class TimeLSTMLayer(ILayer):
     __hidden_dim: int  # 隐藏状态h的维度
     __vec_dim: int  # 词向量维度
 
+    dh: np.ndarray
+
     def __init__(self, wx: np.ndarray, wh: np.ndarray, wb: np.ndarray, stateful=False):
         self.__wx = wx
         self.__wb = wb
@@ -554,6 +556,7 @@ class TimeLSTMLayer(ILayer):
         self.__hidden_dim = self.__wh.shape[0]
         self.__h = None
         self.__c = None
+        self.dh = None
 
     def forward(self, xs):
         N, T, D = xs.shape
@@ -583,6 +586,7 @@ class TimeLSTMLayer(ILayer):
             dx, dh, dc = layer.backward(dhs[:, t, :] + dh, dc)
             dxs[:, t, :] = dx
 
+        self.dh = dh
         return dxs
 
     def get_sub_weight_layers(self):
@@ -591,6 +595,10 @@ class TimeLSTMLayer(ILayer):
     def reset_state(self):
         self.__c = None
         self.__h = None
+
+    def set_state(self, h: np.ndarray, c: np.ndarray = None) -> None:
+        self.__c = c
+        self.__h = h
 
 
 class TimeRNNLayer(ILayer):

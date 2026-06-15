@@ -2,6 +2,7 @@ import numpy as np
 from src.common.vocab import Vocab
 from src.common.logger import getLogger
 import sys
+import os
 
 
 def cos_similarity(x: np.ndarray, y: np.ndarray, eps=1e-8):
@@ -131,3 +132,42 @@ def eval_perplexity(model, vocab: Vocab, batch_size=10, time_size=35):
     print("")
     ppl = np.exp(total_loss / max_iters)
     return ppl
+
+
+def eval_seq2seq(
+    model,
+    question: np.ndarray,
+    answer: np.ndarray,
+    id_to_char: dict[int, str],
+    char_to_id: dict[str, int],
+    verbose=True,
+) -> int:
+    answer = answer.flatten()
+    start_id = answer[0]
+    answer = answer[0:]
+    guess = model.generate(xs=question, start_id=start_id, sample_size=len(answer))
+
+    # 转换为字符串
+    question = "".join([id_to_char[int(c)] for c in question.flatten()])
+    answer = "".join([id_to_char[int(c)] for c in answer])
+    guess = "".join([id_to_char[int(c)] for c in guess])
+    if verbose:
+        colors = {"ok": "\033[92m", "fail": "\033[91m", "close": "\033[0m"}
+        print("Q", question)
+        print("T", answer)
+
+        is_windows = os.name == "nt"
+
+        if answer == guess:
+            mark = colors["ok"] + "☑" + colors["close"]
+            if is_windows:
+                mark = "O"
+            print(mark + " " + guess)
+        else:
+            mark = colors["fail"] + "☒" + colors["close"]
+            if is_windows:
+                mark = "X"
+            print(mark + " " + guess)
+        print("---")
+
+    return 1 if guess == answer else 0

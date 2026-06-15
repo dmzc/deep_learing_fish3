@@ -2,6 +2,7 @@ import sys
 
 sys.path.append("..")
 import numpy as np
+from src.common.decorators.timer import timer
 from src.common.models import IModel
 from src.common.optimizers import IOptimizer
 from src.common.util import clip_grads
@@ -21,6 +22,7 @@ class Trainer:
         self.__ppl_list = []
         self.__lost_list = []
 
+    @timer("训练一次耗时")
     def train(
         self,
         x: np.ndarray,

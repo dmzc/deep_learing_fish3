@@ -1,3 +1,4 @@
+from __future__ import annotations
 import numpy as np
 from abc import ABC
 from dataclasses import dataclass
@@ -350,3 +351,137 @@ class LSTMModel(AbstractModel):
 
     def get_word_by_id(self, id: int) -> str:
         return self.__id_word.get(id)
+
+
+class Encoder:
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __hs: np.ndarray
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        V, D, H = vocab_size, wordvec_size, hidden_size
+        rn = np.random.randn
+
+        embed_W = (rn(V, D) / 100).astype(np.float32)
+        temp: np.ndarray = rn(D, 4 * H) / np.sqrt(D)
+        lstm_Wx = temp.astype(np.float32)
+        temp = rn(H, 4 * H) / np.sqrt(H)
+        lstm_Wh = temp.astype(np.float32)
+        lstm_b = np.zeros(4 * H).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_W)
+        self.__lstm_layer = TimeLSTMLayer(lstm_Wx, lstm_Wh, lstm_b, stateful=False)
+
+        self.__hs = None
+
+    def forward(self, xs: np.ndarray):
+        xs = self.__embed_layer.forward(xs)
+        hs = self.__lstm_layer.forward(xs)
+        self.__hs = hs
+        return hs[:, -1, :]  # 取出最后一个时间步的数据，作为整个句子的压缩
+
+    def backward(self, dh: np.ndarray):
+        dhs = np.zeros_like(self.__hs)
+        dhs[:, -1, :] = dh
+        dout = self.__lstm_layer.backward(dhs)
+        dout = self.__embed_layer.backward(dout)
+        return dout
+
+    def get_sub_weigh_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer]
+
+
+class Decoder:
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __affine_layer: TimeAffineLayer
+    __h: np.ndarray
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        rn = np.random.randn
+
+        embed_w = (rn(vocab_size, wordvec_size) / 100).astype(np.float32)
+        temp: np.ndarray = rn(wordvec_size, 4 * hidden_size) / np.sqrt(wordvec_size)
+        lstm_wx = temp.astype(np.float32)
+
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wh = temp.astype(np.float32)
+        lstm_wb = rn(4 * hidden_size).astype(np.float32)
+
+        temp = rn(hidden_size, vocab_size) / np.sqrt(hidden_size)
+        affine_wx = temp.astype(np.float32)
+        affine_wb = np.zeros(vocab_size).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_w)
+        self.__lstm_layer = TimeLSTMLayer(
+            wx=lstm_wx, wh=lstm_wh, wb=lstm_wb, stateful=True
+        )
+        self.__affine_layer = TimeAffineLayer(wx=affine_wx, wb=affine_wb)
+        self.__h = None
+
+    def set_state(self, h: np.ndarray) -> Decoder:
+        self.__lstm_layer.set_state(h=h)
+        return self
+
+    def forward(self, xs: np.ndarray):
+        out = self.__embed_layer.forward(xs)
+        out = self.__lstm_layer.forward(out)
+        score = self.__affine_layer.forward(out)
+        return score
+
+    def backward(self, dscore: np.ndarray):
+        dout = self.__affine_layer.backward(dscore)
+        dout = self.__lstm_layer.backward(dout)
+        dout = self.__embed_layer.backward(dout)
+        return self.__lstm_layer.dh
+
+    def generate(self, start_id: int, sample_size: int):
+        sampled = []
+        sample_id = start_id
+        for _ in range(sample_size):
+            x = np.array(sample_id).reshape((1, 1))
+            out = self.__embed_layer.forward(x)
+            out = self.__lstm_layer.forward(out)
+            score = self.__affine_layer.forward(out)
+
+            sample_id = np.argmax(score.flatten())
+            sampled.append(int(sample_id))
+        return sampled
+
+    def get_sub_weigh_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer, self.__affine_layer]
+
+
+class Seq2SeqModel(AbstractModel):
+    __encoder: Encoder
+    __decoder: Decoder
+    __loss: TimeSoftmaxLossLayer
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        self.__encoder = Encoder(vocab_size, wordvec_size, hidden_size)
+        self.__decoder = Decoder(vocab_size, wordvec_size, hidden_size)
+        self.__loss = TimeSoftmaxLossLayer()
+
+    def forward(self, xs: np.ndarray, ts: np.ndarray):
+        score = self.__decoder.set_state(h=self.__encoder.forward(xs)).forward(
+            xs=ts[:, :-1]
+        )
+        loss = self.__loss.forward(score, ts[:, 1:])
+        return loss
+
+    def backward(self, dout=1):
+        dout = self.__loss.backward(dout)
+        dh = self.__decoder.backward(dout)
+        dout = self.__encoder.backward(dh)
+        return dout
+
+    def generate(self, xs: np.ndarray, start_id: int, sample_size: int):
+        return self.__decoder.set_state(h=self.__encoder.forward(xs)).generate(
+            start_id=start_id, sample_size=sample_size
+        )
+
+    def get_weight_layers(self):
+        layers = []
+        layers.extend(self.__encoder.get_sub_weigh_layers())
+        layers.extend(self.__decoder.get_sub_weigh_layers())
+        return layers
