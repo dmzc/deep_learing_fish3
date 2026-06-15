@@ -35,6 +35,7 @@ model = LSTMModel(
         wordvec_size=wordvec_size,
         hiddent_size=hidden_size,
         dropout_ratio=dropout,
+        words=vocab.get_words(),
     )
 )
 optimizer = SGDOptimizer(lr)

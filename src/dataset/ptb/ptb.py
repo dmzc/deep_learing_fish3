@@ -10,7 +10,7 @@ ptb_dir = Path(__file__).parent
 def load_data(
     type: DatasetType = DatasetType.TRAIN, use_cache=True, data_size=None
 ) -> Vocab:
-    # vocab_file = ptb_dir / f"{type.value}.vocab.pkl"  
+    # vocab_file = ptb_dir / f"{type.value}.vocab.pkl"
     # TODO:感觉cache没什么用
 
     # if Path.exists(vocab_file) and use_cache:
@@ -47,4 +47,5 @@ def _clean(text: str) -> str:
 
     # 5. 清理多余空格 + 首尾空格
     text = " ".join(text.strip().split())
+    # text = text.replace("\n", "<eos>").strip()
     return text

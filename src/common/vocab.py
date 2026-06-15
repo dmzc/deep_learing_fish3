@@ -54,6 +54,9 @@ class Vocab:
             return self.__id_word[id]
         return None
 
+    def get_words(self) -> list[str]:
+        return self.__id_word
+
     def get_id(self, word: str) -> int:
         if word in self.__word_id:
             return self.__word_id[word]

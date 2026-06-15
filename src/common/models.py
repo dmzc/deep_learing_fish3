@@ -15,6 +15,7 @@ from src.common.layers import (
     TimeDropoutLayer,
 )
 from src.common.vocab import Vocab
+from src.common.util import softmax
 
 
 class IModel(ABC):
@@ -220,6 +221,7 @@ class LSTMModelParams:
     vocab_size: int
     wordvec_size: int
     hiddent_size: int
+    words: dict[int, str]
     dropout_ratio: float = 0.5
 
     # 下面参数为权重，要不同时为None，要不同时不为空。不为空时代表是推理阶段要加载参数
@@ -242,9 +244,18 @@ class LSTMModel(AbstractModel):
 
     __loss_layer: ILayer
 
+    __id_word: dict[int, str]
+
+    __word_id: dict[str, int]
+
     def __init__(self, params: LSTMModelParams):
         rn = np.random.randn
         temp: np.ndarray
+
+        self.__id_word = params.words
+        word_id = self.__word_id = {}
+        for key in self.__id_word:
+            word_id[self.__id_word.get(key)] = key
 
         vocab_size: int = params.vocab_size
         word_vec_size: int = params.wordvec_size
@@ -311,9 +322,31 @@ class LSTMModel(AbstractModel):
             xs = layer.forward(xs)
         return xs
 
+    def generate(self, start_word: int, skip_words: list[int] = None, sample_size=100):
+        words = [start_word]
+        x: np.ndarray = None
+        while len(words) < sample_size:
+            if x is None:
+                x = start_word
+            x = np.array(x).reshape(1, 1)
+            score = self.predict(x).flatten()
+            p = softmax(score).flatten()
+
+            sampled = np.random.choice(len(p), size=1, p=p)
+            if skip_words is None or sampled not in skip_words:
+                x = sampled
+                words.append(int(x))
+        return words
+
     def get_weight_layers(self):
         return self.__layers
 
     def reset_state(self):
         for layer in self.__lstm_layers:
             layer.reset_state()
+
+    def get_id_by_word(self, word: str) -> int:
+        return self.__word_id.get(word)
+
+    def get_word_by_id(self, id: int) -> str:
+        return self.__id_word.get(id)

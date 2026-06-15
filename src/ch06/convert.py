@@ -3,6 +3,8 @@ import pickle
 import numpy as np
 from pathlib import Path
 from src.common.models import LSTMModelParams, LSTMModel
+from src.dataset.ptb import ptb
+from src.common.vocab import Vocab
 
 cur_path = Path(__file__).parent
 
@@ -12,6 +14,8 @@ n_pkl_path1 = cur_path / "Rnnlm_n.pkl"
 pkl_path2 = cur_path / "BetterRnnlm.pkl"
 n_pkl_path2 = cur_path / "BetterRnnlm_n.pkl"
 
+
+print(ptb.load_data(use_cache=False).get_size())
 
 if not os.path.exists(pkl_path1):
     raise IOError("No file: " + pkl_path1.as_uri())
@@ -29,7 +33,7 @@ with open(pkl_path1, "rb") as f:
     params_dict["affine1_wx"] = params[4]
     params_dict["affine1_wb"] = params[5]
 with open(n_pkl_path1, "wb") as f:
-    # pickle.dump(params_dict, f)
+    pickle.dump(params_dict, f)
     pass
 
 
@@ -38,8 +42,10 @@ if not os.path.exists(pkl_path2):
 params_dict = {}
 with open(pkl_path2, "rb") as f:
     params = pickle.load(f)
+    vocab: Vocab = ptb.load_data(use_cache=False)
+
     lstm_model_params = LSTMModelParams(
-        vocab_size=100000, wordvec_size=650, hiddent_size=650
+        vocab_size=10000, wordvec_size=650, hiddent_size=650, words=vocab.get_words()
     )
     lstm_model_params.embedding1_wx = params[0]
     lstm_model_params.lstm1_wx = params[1]

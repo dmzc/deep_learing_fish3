@@ -81,6 +81,14 @@
             "console": "integratedTerminal",
             "justMyCode": false,
             "module": "src.ch07.train"
+        },
+        {
+            "name": "src.ch07.lstm_gen_text",
+            "type": "debugpy",
+            "request": "launch",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "module": "src.ch07.lstm_gen_text"
         }
     ]
 }

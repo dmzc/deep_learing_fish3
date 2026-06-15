@@ -72,7 +72,7 @@ def cross_entropy(y: np.ndarray, t: np.ndarray):
     return -np.sum(np.log(y[np.arange(batch_size), t] + 1e-7)) / batch_size
 
 
-def softmax(x: np.typing.NDArray[np.number]):
+def softmax(x: np.typing.NDArray[np.number]) -> np.ndarray:
     if x.ndim == 2:
         x = x.T
         x = x - np.max(x, axis=0)
