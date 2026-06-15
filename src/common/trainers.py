@@ -52,6 +52,8 @@ class Trainer:
                 batch_x = x[iter * batch_size : (iter + 1) * batch_size]
                 batch_t = t[iter * batch_size : (iter + 1) * batch_size]
                 loss = model.forward(batch_x, batch_t)
+                if iter == max_iters - 1:
+                    print(loss)
                 total_loss += loss
                 loss_count += 1
                 model.backward()

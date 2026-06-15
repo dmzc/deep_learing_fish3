@@ -144,8 +144,10 @@ def eval_seq2seq(
 ) -> int:
     answer = answer.flatten()
     start_id = answer[0]
-    answer = answer[0:]
-    guess = model.generate(xs=question, start_id=start_id, sample_size=len(answer))
+    temp = [start_id]
+    guess = model.generate(xs=question, start_id=start_id, sample_size=len(answer) - 1)
+    temp.extend(guess)
+    guess = temp
 
     # 转换为字符串
     question = "".join([id_to_char[int(c)] for c in question.flatten()])

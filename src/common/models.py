@@ -56,7 +56,8 @@ class AbstractModel(IModel):
                         t_gradient = __gradientsMap[key]
                         t_gradient += gradient
                     else:
-                        __weightsMap[key] = weight.copy()
+                        # 严重失误，weight怎么能copy呢？copy之后不就无法按梯度更新了吗？
+                        __weightsMap[key] = weight
                         __gradientsMap[key] = gradient.copy()
             sub_layers = layer.get_sub_weight_layers()
             if sub_layers is not None:
