@@ -20,6 +20,7 @@ from src.common.layers import (
 )
 from src.common.vocab import Vocab
 from src.common.util import softmax
+from src.common.enums.decoder_type import DecoderType
 
 
 class IModel(ABC):
@@ -382,15 +383,19 @@ class Seq2SeqModel(AbstractModel):
     __loss_layer: TimeSoftmaxLossLayer
 
     def __init__(
-        self, vocab_size: int, wordvec_size: int, hidden_size: int, use_peeky=False
+        self,
+        vocab_size: int,
+        wordvec_size: int,
+        hidden_size: int,
+        decoder_type: DecoderType,
     ):
         self.__encoder_layer = TimeEncoderLayer(vocab_size, wordvec_size, hidden_size)
-        if use_peeky:
-            self.__decoder_layer = TimePeekyDecoderLayer(
+        if decoder_type is None:
+            self.__decoder_layer = TimeDecoderLayer(
                 vocab_size, wordvec_size, hidden_size
             )
-        else:
-            self.__decoder_layer = TimeDecoderLayer(
+        elif decoder_type.value == DecoderType.PEEKY.value:
+            self.__decoder_layer = TimePeekyDecoderLayer(
                 vocab_size, wordvec_size, hidden_size
             )
 

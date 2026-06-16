@@ -2,6 +2,7 @@ from src.dataset.sequence import sequence
 from src.common.models import Seq2SeqModel
 from src.common.optimizers import AdamOptimizer
 from src.common.trainers import Trainer
+from src.common.enums.decoder_type import DecoderType
 from src.common.util import eval_seq2seq
 import numpy as np
 import matplotlib.pyplot as plt
@@ -20,20 +21,25 @@ vocab_size = len(char_to_id)
 wordvec_size = 16
 hidden_size = 128
 batch_size = 128
-max_epoch = 25
+max_epoch = 30
 max_grad = 5.0
 
+decoder_type: DecoderType = None
+
+if use_peeky:
+    decoder_type = DecoderType.PEEKY
 # acc_name = "_"
 # if use_reverse:
 #     acc_name += "use_reverse"
 # if use_peeky:
 #     acc_name += "use_peekly"
 
+
 model = Seq2SeqModel(
     vocab_size=vocab_size,
     hidden_size=hidden_size,
     wordvec_size=wordvec_size,
-    use_peeky=use_peeky,
+    decoder_type=decoder_type,
 )
 
 optimizer = AdamOptimizer()
