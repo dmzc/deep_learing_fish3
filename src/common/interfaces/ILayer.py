@@ -1,0 +1,13 @@
+from __future__ import annotations
+import numpy as np
+from abc import ABC
+
+
+class ILayer(ABC):
+    def get_weights_gradients(self) -> tuple[list[np.ndarray], list[np.ndarray]]: ...
+
+    def forward(self, x: np.ndarray) -> np.ndarray: ...
+
+    def backward(self, dout: np.ndarray | float) -> np.ndarray: ...
+
+    def get_sub_weight_layers(self) -> list[ILayer]: ...

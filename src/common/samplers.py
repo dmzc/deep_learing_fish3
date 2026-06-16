@@ -1,27 +1,18 @@
-from src.common.vocab import Vocab
 import numpy as np
-from abc import ABC
-
-
-class ISampler(ABC):
-    _sample_size: int
-    _power: float
-    _vocab: Vocab
-
-    def __init__(self, vocab: Vocab, sample_size=5, power=0.75):
-        self._vocab = vocab
-        self._power = power
-        self._sample_size = sample_size
-
-    def do_sample(self, word: np.ndarray) -> np.ndarray:
-        pass
+from src.common.interfaces.IVocab import IVocab
+from src.common.interfaces.ISampler import ISampler
 
 
 class SimpleSampler(ISampler):
     __probability: np.ndarray
+    _sample_size: int
+    _power: float
+    _vocab: IVocab
 
     def __init__(self, vocab, sample_size=5, power=0.75):
-        super().__init__(vocab, sample_size, power)
+        self._vocab = vocab
+        self._power = power
+        self._sample_size = sample_size
         probability = self._vocab.get_probability()
         probability = np.power(probability, power)
         probability = probability / np.sum(probability)

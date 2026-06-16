@@ -1,5 +1,5 @@
 import numpy as np
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.common.logger import getLogger
 import sys
 import os
@@ -14,7 +14,7 @@ def cos_similarity(x: np.ndarray, y: np.ndarray, eps=1e-8):
     return np.dot(nx, ny)
 
 
-def get_similar_words(query_word: str, vocab: Vocab, top=5):
+def get_similar_words(query_word: str, vocab: IVocab, top=5):
     """
     查找相似词
     @param 查询词
@@ -102,7 +102,7 @@ def sigmoid(x):
     return 1 / (1 + np.exp(-x))
 
 
-def eval_perplexity(model, vocab: Vocab, batch_size=10, time_size=35):
+def eval_perplexity(model, vocab: IVocab, batch_size=10, time_size=35):
     print("evaluating perplexity ...")
     corpus_size = vocab.get_corpus_size()
     total_loss, loss_cnt = 0, 0

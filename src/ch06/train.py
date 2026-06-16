@@ -2,7 +2,7 @@
 import sys
 
 sys.path.append("..")
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.common.optimizers import SGDOptimizer
 from src.common.trainers import RNNTrainer
 
@@ -21,7 +21,7 @@ max_epoch = 10
 max_grad = 0.25
 dropout = 0.5
 
-vocab: Vocab = ptb.load_data(use_cache=False)
+vocab: IVocab = ptb.load_data(use_cache=False)
 valid_vocab = ptb.load_data(use_cache=False, type=DatasetType.VALID)
 test_vocab = ptb.load_data(use_cache=False, type=DatasetType.TEST)
 

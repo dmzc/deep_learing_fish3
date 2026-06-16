@@ -4,7 +4,7 @@ sys.path.append("..")
 import numpy as np
 from src.common.decorators.timer import timer
 from src.common.models import IModel
-from src.common.optimizers import IOptimizer
+from src.common.interfaces.IOptimizer import IOptimizer
 from src.common.util import clip_grads
 import matplotlib.pyplot as plt
 import time as time

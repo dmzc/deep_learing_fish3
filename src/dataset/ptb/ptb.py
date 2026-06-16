@@ -1,6 +1,7 @@
 import re
 from pathlib import Path
 from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.common.enums import DatasetType
 
 ptb_dir = Path(__file__).parent
@@ -8,7 +9,7 @@ ptb_dir = Path(__file__).parent
 
 def load_data(
     type: DatasetType = DatasetType.TRAIN, use_cache=True, data_size=None
-) -> Vocab:
+) -> IVocab:
     # vocab_file = ptb_dir / f"{type.value}.vocab.pkl"
     # TODO:感觉cache没什么用
 

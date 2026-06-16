@@ -1,9 +1,7 @@
 from __future__ import annotations
 import numpy as np
-from abc import ABC
-from dataclasses import dataclass
+from src.common.interfaces.ILayer import ILayer
 from src.common.layers import (
-    ILayer,
     AffineLayer,
     SoftmaxLossLayer,
     EmbeddingLayer,
@@ -18,23 +16,10 @@ from src.common.layers import (
     TimeDecoderLayer,
     TimePeekyDecoderLayer,
 )
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.common.util import softmax
 from src.common.enums import DecoderType
-
-
-class IModel(ABC):
-    # 所有层的权重
-    _weights: list[np.ndarray]
-
-    # 所有层的梯度
-    _gradients: list[np.ndarray]
-
-    def get_weights_gradients() -> tuple[list[np.ndarray], list[np.ndarray]]: ...
-
-    def forward(self, contexts, target) -> float: ...
-
-    def backward(self, dout) -> None: ...
+from src.common.interfaces.IModel import IModel, LSTMModelParams, Seq2SeqModelParams
 
 
 class AbstractModel(IModel):
@@ -138,7 +123,7 @@ class CbowModel(AbstractModel):
 
     _loss_layer: ILayer
 
-    def __init__(self, vocab: Vocab, hidden_size: int):
+    def __init__(self, vocab: IVocab, hidden_size: int):
         super().__init__()
         vocab_size = vocab.get_size()
         window_size = vocab.get_current_window_size()
@@ -220,25 +205,6 @@ class RNNModel(AbstractModel):
 
     def get_weight_layers(self):
         return self.__layers
-
-
-@dataclass
-class LSTMModelParams:
-    vocab_size: int
-    wordvec_size: int
-    hiddent_size: int
-    words: dict[int, str]
-    dropout_ratio: float = 0.5
-
-    # 下面参数为权重，要不同时为None，要不同时不为空。不为空时代表是推理阶段要加载参数
-    embedding1_wx: np.ndarray = None
-    lstm1_wx: np.ndarray = None
-    lstm1_wh: np.ndarray = None
-    lstm1_wb: np.ndarray = None
-    lstm2_wx: np.ndarray = None
-    lstm2_wh: np.ndarray = None
-    lstm2_wb: np.ndarray = None
-    affine1_wb: np.ndarray = None
 
 
 class LSTMModel(AbstractModel):
@@ -356,25 +322,6 @@ class LSTMModel(AbstractModel):
 
     def get_word_by_id(self, id: int) -> str:
         return self.__id_word.get(id)
-
-
-@dataclass
-class Seq2SeqModelParams:
-    # TODO:支持加载参数
-    vocab_size: int
-    wordvec_size: int
-    hiddent_size: int
-    words: dict[int, str]
-
-    # 下面参数为权重，要不同时为None，要不同时不为空。不为空时代表是推理阶段要加载参数
-    embedding1_wx: np.ndarray = None
-    lstm1_wx: np.ndarray = None
-    lstm1_wh: np.ndarray = None
-    lstm1_wb: np.ndarray = None
-    lstm2_wx: np.ndarray = None
-    lstm2_wh: np.ndarray = None
-    lstm2_wb: np.ndarray = None
-    affine1_wb: np.ndarray = None
 
 
 class Seq2SeqModel(AbstractModel):

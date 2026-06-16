@@ -1,9 +1,6 @@
 import numpy as np
 
-
-class IOptimizer:
-    def update(self, params, grads):
-        pass
+from src.common.interfaces.IOptimizer import IOptimizer
 
 
 class SGDOptimizer(IOptimizer):

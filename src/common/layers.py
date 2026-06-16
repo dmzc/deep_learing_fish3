@@ -2,24 +2,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from abc import ABC
-
 from src.common.util import softmax, cross_entropy, sigmoid
 
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 
-from src.common.samplers import ISampler, SimpleSampler
+from src.common.samplers import SimpleSampler
 
-
-class ILayer(ABC):
-    def get_weights_gradients(self) -> tuple[list[np.ndarray], list[np.ndarray]]: ...
-
-    def forward(self, x: np.ndarray) -> np.ndarray: ...
-
-    def backward(self, dout: np.ndarray | float) -> np.ndarray: ...
-
-    def get_sub_weight_layers(self) -> list[ILayer]: ...
-
+from src.common.interfaces.ILayer import ILayer
 
 """
     relu层
@@ -333,11 +322,11 @@ class EmbeddingDotLayer(ILayer):
 
 
 class NegativeSamplingLossLayer(ILayer):
-    _negative_sampler: ISampler
+    _negative_sampler: SimpleSampler
     _loss_layers: list[SigmoidLossLayer]
     _embed_dot_layers: list[EmbeddingDotLayer]
 
-    def __init__(self, vocab: Vocab, out_matrix: np.ndarray, sample_size=5, power=0.75):
+    def __init__(self, vocab: IVocab, out_matrix: np.ndarray, sample_size=5, power=0.75):
         self._negative_sampler = SimpleSampler(
             vocab=vocab, sample_size=sample_size, power=power
         )

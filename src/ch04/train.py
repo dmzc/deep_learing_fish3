@@ -1,7 +1,7 @@
 import sys
 
 sys.path.append("..")
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.dataset.ptb import ptb
 from pympler import asizeof
 from src.common.models import CbowModel
@@ -15,7 +15,7 @@ max_epoch = 10
 batch_size = 128
 window_size=5
 
-vocab: Vocab = ptb.load_data(use_cache=False)
+vocab: IVocab = ptb.load_data(use_cache=False)
 vocab.set_current_matrix(window_size=window_size)
 context_words, center_words = vocab.get_word2vec_data(use_onehot=False, window_size=window_size)
 # ptb 90w字的语料，使用one-host形式，center words 8GB,Context Words 17GB。使用id形式，只有20MB

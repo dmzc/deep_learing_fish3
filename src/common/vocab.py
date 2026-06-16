@@ -1,9 +1,10 @@
 import numpy as np
+from src.common.interfaces.IVocab import IVocab
 from src.common.decorators.timer import timer
 import time as time
 
 
-class Vocab:
+class Vocab(IVocab):
     __word_id: dict[str, int]
     __id_word: dict[int, str]
     __corpus: np.ndarray

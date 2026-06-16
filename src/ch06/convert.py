@@ -4,7 +4,7 @@ import numpy as np
 from pathlib import Path
 from src.common.models import LSTMModelParams, LSTMModel
 from src.dataset.ptb import ptb
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 
 cur_path = Path(__file__).parent
 
@@ -42,7 +42,7 @@ if not os.path.exists(pkl_path2):
 params_dict = {}
 with open(pkl_path2, "rb") as f:
     params = pickle.load(f)
-    vocab: Vocab = ptb.load_data(use_cache=False)
+    vocab: IVocab = ptb.load_data(use_cache=False)
 
     lstm_model_params = LSTMModelParams(
         vocab_size=10000, wordvec_size=650, hiddent_size=650, words=vocab.get_words()

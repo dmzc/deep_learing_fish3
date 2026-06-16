@@ -1,7 +1,7 @@
 import sys
 
 sys.path.append("..")
-from src.common.vocab import Vocab
+from src.common.interfaces.IVocab import IVocab
 from src.dataset.ptb import ptb
 from src.common.models import SimpleCbowModel
 from src.common.optimizers import AdamOptimizer
@@ -12,7 +12,7 @@ hidden_size = 5
 max_epoch = 60
 batch_size = 3
 
-vocab: Vocab = ptb.load_data(use_cache=False, data_size=10000)
+vocab: IVocab = ptb.load_data(use_cache=False, data_size=10000)
 vocab.set_current_matrix(window_size=1)
 # TODO:vocab获取训练数据会很大，数据也不需要存储为one-hot变量
 context_words, center_words = vocab.get_word2vec_data(use_onehot=True, window_size=1)
