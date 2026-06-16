@@ -1,8 +1,7 @@
-import pickle
 import re
 from pathlib import Path
 from src.common.vocab import Vocab
-from src.common.enums.dataset_type import DatasetType
+from src.common.enums import DatasetType
 
 ptb_dir = Path(__file__).parent
 

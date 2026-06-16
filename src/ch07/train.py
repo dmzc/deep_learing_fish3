@@ -2,7 +2,7 @@ from src.dataset.sequence import sequence
 from src.common.models import Seq2SeqModel
 from src.common.optimizers import AdamOptimizer
 from src.common.trainers import Trainer
-from src.common.enums.decoder_type import DecoderType
+from src.common.enums import DecoderType
 from src.common.util import eval_seq2seq
 import numpy as np
 import matplotlib.pyplot as plt

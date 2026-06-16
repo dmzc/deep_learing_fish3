@@ -9,7 +9,7 @@ from src.common.trainers import RNNTrainer
 # from common.util import eval_perplexity, to_gpu
 from src.dataset.ptb import ptb
 from src.common.models import LSTMModel, LSTMModelParams
-from src.common.enums.dataset_type import DatasetType
+from src.common.enums import DatasetType
 
 # 设定超参数
 batch_size = 20
