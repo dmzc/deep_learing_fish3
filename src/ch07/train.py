@@ -10,9 +10,11 @@ data = sequence.load_data()
 (x_train, t_train), (x_test, t_test) = data[0], data[1]
 char_to_id, id_to_char = sequence.get_vocab()
 
-is_reverse = True
-if is_reverse:  # 只反转encoder的输入
+use_reverse = True
+if use_reverse:  # 只反转encoder的输入
     x_train, x_test = x_train[:, ::-1], x_test[:, ::-1]
+
+use_peeky = True
 
 vocab_size = len(char_to_id)
 wordvec_size = 16
@@ -21,8 +23,17 @@ batch_size = 128
 max_epoch = 25
 max_grad = 5.0
 
+# acc_name = "_"
+# if use_reverse:
+#     acc_name += "use_reverse"
+# if use_peeky:
+#     acc_name += "use_peekly"
+
 model = Seq2SeqModel(
-    vocab_size=vocab_size, hidden_size=hidden_size, wordvec_size=wordvec_size
+    vocab_size=vocab_size,
+    hidden_size=hidden_size,
+    wordvec_size=wordvec_size,
+    use_peeky=use_peeky,
 )
 
 optimizer = AdamOptimizer()
@@ -45,7 +56,7 @@ for epoch in range(max_epoch):
             id_to_char=id_to_char,
             char_to_id=char_to_id,
             verbose=index < 10,
-            is_reverse=is_reverse,
+            is_reverse=use_reverse,
         )
 
     acc = float(correct_num) / all_test_num

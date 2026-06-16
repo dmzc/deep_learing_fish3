@@ -821,3 +821,198 @@ class TimeDropoutLayer(ILayer):
 
     def set_training_state(self, training: bool):
         self.__training = training
+
+
+class TimeEncoderLayer(ILayer):
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __hs: np.ndarray
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        V, D, H = vocab_size, wordvec_size, hidden_size
+        rn = np.random.randn
+
+        embed_W = (rn(V, D) / 100).astype(np.float32)
+        temp: np.ndarray = rn(D, 4 * H) / np.sqrt(D)
+        lstm_Wx = temp.astype(np.float32)
+        temp = rn(H, 4 * H) / np.sqrt(H)
+        lstm_Wh = temp.astype(np.float32)
+        lstm_b = np.zeros(4 * H).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_W)
+        self.__lstm_layer = TimeLSTMLayer(lstm_Wx, lstm_Wh, lstm_b, stateful=False)
+
+        self.__hs = None
+
+    def forward(self, xs: np.ndarray):
+        xs = self.__embed_layer.forward(xs)
+        hs = self.__lstm_layer.forward(xs)
+        self.__hs = hs
+        return hs[:, -1, :]  # 取出最后一个时间步的数据，作为整个句子的压缩
+
+    def backward(self, dh: np.ndarray):
+        dhs = np.zeros_like(self.__hs)
+        dhs[:, -1, :] = dh
+        dout = self.__lstm_layer.backward(dhs)
+        dout = self.__embed_layer.backward(dout)
+        return dout
+
+    def get_sub_weight_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer]
+
+
+class TimeDecoderLayer(ILayer):
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __affine_layer: TimeAffineLayer
+    __h: np.ndarray
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        rn = np.random.randn
+
+        embed_w = (rn(vocab_size, wordvec_size) / 100).astype(np.float32)
+        temp: np.ndarray = rn(wordvec_size, 4 * hidden_size) / np.sqrt(wordvec_size)
+        lstm_wx = temp.astype(np.float32)
+
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wh = temp.astype(np.float32)
+        lstm_wb = rn(4 * hidden_size).astype(np.float32)
+
+        temp = rn(hidden_size, vocab_size) / np.sqrt(hidden_size)
+        affine_wx = temp.astype(np.float32)
+        affine_wb = np.zeros(vocab_size).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_w)
+        self.__lstm_layer = TimeLSTMLayer(
+            wx=lstm_wx, wh=lstm_wh, wb=lstm_wb, stateful=True
+        )
+        self.__affine_layer = TimeAffineLayer(wx=affine_wx, wb=affine_wb)
+        self.__h = None
+
+    def set_state(self, h: np.ndarray) -> TimeDecoderLayer:
+        self.__lstm_layer.set_state(h=h)
+        return self
+
+    def forward(self, xs: np.ndarray):
+        out = self.__embed_layer.forward(xs)
+        out = self.__lstm_layer.forward(out)
+        score = self.__affine_layer.forward(out)
+        return score
+
+    def backward(self, dscore: np.ndarray):
+        dout = self.__affine_layer.backward(dscore)
+        dout = self.__lstm_layer.backward(dout)
+        dout = self.__embed_layer.backward(dout)
+        return self.__lstm_layer.dh
+
+    def generate(self, start_id: int, sample_size: int):
+        sampled = []
+        sample_id = start_id
+        for _ in range(sample_size):
+            x = np.array(sample_id).reshape((1, 1))
+            out = self.__embed_layer.forward(x)
+            out = self.__lstm_layer.forward(out)
+            score = self.__affine_layer.forward(out)
+
+            sample_id = np.argmax(score.flatten())
+            sampled.append(int(sample_id))
+        return sampled
+
+    def get_sub_weight_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer, self.__affine_layer]
+
+
+class TimePeekyDecoderLayer(ILayer):
+    """
+    将h当作全局变量拼接到每一步中去
+    """
+
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __affine_layer: TimeAffineLayer
+
+    """
+    Encoder输入的隐藏状态
+    """
+    __h: np.ndarray
+
+    __hidden_dim: int
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        rn = np.random.randn
+
+        embed_w = (rn(vocab_size, wordvec_size) / 100).astype(np.float32)
+        temp: np.ndarray = rn(hidden_size + wordvec_size, 4 * hidden_size) / np.sqrt(
+            hidden_size + wordvec_size
+        )
+        lstm_wx = temp.astype(np.float32)
+
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wh = temp.astype(np.float32)
+        lstm_wb = rn(4 * hidden_size).astype(np.float32)
+
+        temp = rn(hidden_size * 2, vocab_size) / np.sqrt(hidden_size * 2)
+        affine_wx = temp.astype(np.float32)
+        affine_wb = np.zeros(vocab_size).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_w)
+        self.__lstm_layer = TimeLSTMLayer(
+            wx=lstm_wx, wh=lstm_wh, wb=lstm_wb, stateful=True
+        )
+        self.__affine_layer = TimeAffineLayer(wx=affine_wx, wb=affine_wb)
+        self.__h = None
+        self.__hidden_dim = None
+
+    def set_state(self, h: np.ndarray) -> TimeDecoderLayer:
+        self.__lstm_layer.set_state(h=h)
+        self.__h = h
+        self.__hidden_dim = h.shape[1]
+        return self
+
+    def forward(self, xs: np.ndarray):
+        N, T = xs.shape
+
+        # 1.将embed层输出和隐藏变量拼接到输出
+        out = self.__embed_layer.forward(xs)  # N*T*D
+        hs = np.repeat(self.__h, T, axis=0).reshape(N, T, self.__hidden_dim)  # N*T*H
+        out = np.concatenate((hs, out), axis=2)  # N*T*(H+D)
+
+        # 2.将lstm层输出和隐藏变量拼接到输出
+        out = self.__lstm_layer.forward(out)
+        out = np.concatenate((hs, out), axis=2)
+
+        score = self.__affine_layer.forward(out)
+        return score
+
+    def backward(self, dscore: np.ndarray):
+        H = self.__hidden_dim
+        dout = self.__affine_layer.backward(dscore)
+        dout, dhs0 = dout[:, :, H:], dout[:, :, :H]
+        dout = self.__lstm_layer.backward(dout)
+        dembed, dhs1 = dout[:, :, H:], dout[:, :, :H]
+        self.__embed_layer.backward(dembed)
+
+        dhs = dhs0 + dhs1
+        dh = self.__lstm_layer.dh + np.sum(dhs, axis=1)
+        return dh
+
+    def generate(self, start_id: int, sample_size: int):
+        sampled = []
+        sample_id = start_id
+        peeky_h = self.__h.reshape(1, 1, self.__hidden_dim)
+        for _ in range(sample_size):
+            x = np.array(sample_id).reshape((1, 1))
+            out = self.__embed_layer.forward(x)  # 1 ,1, D
+
+            out = np.concatenate((peeky_h, out), axis=2)  # 1, 1, H + D
+            out = self.__lstm_layer.forward(out)
+
+            out = np.concatenate((peeky_h, out), axis=2)  # 1, 1, H + H
+            score = self.__affine_layer.forward(out)
+
+            sample_id = np.argmax(score.flatten())
+            sampled.append(int(sample_id))
+        return sampled
+
+    def get_sub_weight_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer, self.__affine_layer]
