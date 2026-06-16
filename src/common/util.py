@@ -141,6 +141,7 @@ def eval_seq2seq(
     id_to_char: dict[int, str],
     char_to_id: dict[str, int],
     verbose=True,
+    is_reverse=False,
 ) -> int:
     answer = answer.flatten()
     start_id = answer[0]
@@ -154,6 +155,9 @@ def eval_seq2seq(
     answer = "".join([id_to_char[int(c)] for c in answer])
     guess = "".join([id_to_char[int(c)] for c in guess])
     if verbose:
+        if is_reverse:
+            question = question[::-1]
+
         colors = {"ok": "\033[92m", "fail": "\033[91m", "close": "\033[0m"}
         print("Q", question)
         print("T", answer)
