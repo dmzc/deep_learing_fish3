@@ -60,7 +60,6 @@ for epoch in range(max_epoch):
             question=question,
             answer=answer,
             id_to_char=id_to_char,
-            char_to_id=char_to_id,
             verbose=index < 10,
             is_reverse=use_reverse,
         )

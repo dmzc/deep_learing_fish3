@@ -5,17 +5,27 @@ from dataclasses import dataclass
 
 
 class IModel(ABC):
-    # 所有层的权重
-    _weights: list[np.ndarray]
-
-    # 所有层的梯度
-    _gradients: list[np.ndarray]
-
     def get_weights_gradients() -> tuple[list[np.ndarray], list[np.ndarray]]: ...
 
     def forward(self, contexts, target) -> float: ...
 
     def backward(self, dout) -> None: ...
+
+
+class IGenerateModel(IModel):
+    def generate(xs: np.ndarray, start_id: int, sample_size: int) -> list[int]: ...
+
+
+@dataclass
+class ModelParams:
+    # TODO:统一实现权重保存、加载
+    weights: list[np.ndarray]
+
+
+@dataclass
+class ModelResult:
+    # TODO：记录的模型执行结果
+    pass
 
 
 @dataclass

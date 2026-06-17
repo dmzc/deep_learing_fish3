@@ -15,11 +15,18 @@ from src.common.layers import (
     TimeEncoderLayer,
     TimeDecoderLayer,
     TimePeekyDecoderLayer,
+    TimeAttentionEncoderLayer,
+    TimeAttentionDecoderLayer,
 )
 from src.common.interfaces.IVocab import IVocab
 from src.common.util import softmax
-from src.common.enums import DecoderType
-from src.common.interfaces.IModel import IModel, LSTMModelParams, Seq2SeqModelParams
+from src.common.enums import DecoderType, EncoderType
+from src.common.interfaces.IModel import (
+    IModel,
+    IGenerateModel,
+    LSTMModelParams,
+    Seq2SeqModelParams,
+)
 
 
 class AbstractModel(IModel):
@@ -207,7 +214,7 @@ class RNNModel(AbstractModel):
         return self.__layers
 
 
-class LSTMModel(AbstractModel):
+class LSTMModel(AbstractModel, IGenerateModel):
     __layers: list[ILayer]
 
     __dropout_layers: list[TimeDropoutLayer]
@@ -324,7 +331,7 @@ class LSTMModel(AbstractModel):
         return self.__id_word.get(id)
 
 
-class Seq2SeqModel(AbstractModel):
+class Seq2SeqModel(AbstractModel, IGenerateModel):
     __encoder_layer: TimeEncoderLayer
     __decoder_layer: TimeDecoderLayer
     __loss_layer: TimeSoftmaxLossLayer
@@ -334,10 +341,18 @@ class Seq2SeqModel(AbstractModel):
         vocab_size: int,
         wordvec_size: int,
         hidden_size: int,
-        decoder_type: DecoderType,
+        decoder_type: DecoderType = DecoderType.AUTO,
+        encoder_type: EncoderType = EncoderType.AUTO,
     ):
-        self.__encoder_layer = TimeEncoderLayer(vocab_size, wordvec_size, hidden_size)
-        if decoder_type is None:
+        if encoder_type == EncoderType.AUTO:
+            self.__encoder_layer = TimeEncoderLayer(
+                vocab_size, wordvec_size, hidden_size
+            )
+        elif encoder_type == EncoderType.ATTENTION:
+            self.__encoder_layer = TimeAttentionEncoderLayer(
+                vocab_size, wordvec_size, hidden_size
+            )
+        if decoder_type == DecoderType.AUTO:
             self.__decoder_layer = TimeDecoderLayer(
                 vocab_size, wordvec_size, hidden_size
             )
@@ -345,7 +360,10 @@ class Seq2SeqModel(AbstractModel):
             self.__decoder_layer = TimePeekyDecoderLayer(
                 vocab_size, wordvec_size, hidden_size
             )
-
+        elif decoder_type == DecoderType.ATTENTION:
+            self.__decoder_layer = TimeAttentionDecoderLayer(
+                vocab_size, wordvec_size, hidden_size
+            )
         self.__loss_layer = TimeSoftmaxLossLayer()
 
     def forward(self, xs: np.ndarray, ts: np.ndarray):

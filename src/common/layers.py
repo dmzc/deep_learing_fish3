@@ -96,6 +96,23 @@ class AffineLayer(ILayer):
             )
 
 
+class SoftmaxLayer(ILayer):
+    __out: np.ndarray
+
+    def __init__(self):
+        self.__out = None
+
+    def forward(self, x):
+        self.__out = softmax(x)
+        return self.__out
+
+    def backward(self, dout):
+        dx = self.__out * dout
+        sumdx = np.sum(dx, axis=1, keepdims=True)
+        dx -= self.__out * sumdx
+        return dx
+
+
 class SoftmaxLossLayer(ILayer):
     def __init__(self):
         self.loss = None
@@ -326,7 +343,9 @@ class NegativeSamplingLossLayer(ILayer):
     _loss_layers: list[SigmoidLossLayer]
     _embed_dot_layers: list[EmbeddingDotLayer]
 
-    def __init__(self, vocab: IVocab, out_matrix: np.ndarray, sample_size=5, power=0.75):
+    def __init__(
+        self, vocab: IVocab, out_matrix: np.ndarray, sample_size=5, power=0.75
+    ):
         self._negative_sampler = SimpleSampler(
             vocab=vocab, sample_size=sample_size, power=power
         )
@@ -816,6 +835,7 @@ class TimeEncoderLayer(ILayer):
     __embed_layer: TimeEmbeddingLayer
     __lstm_layer: TimeLSTMLayer
     __hs: np.ndarray
+    _use_latest_state: bool
 
     def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
         V, D, H = vocab_size, wordvec_size, hidden_size
@@ -832,22 +852,36 @@ class TimeEncoderLayer(ILayer):
         self.__lstm_layer = TimeLSTMLayer(lstm_Wx, lstm_Wh, lstm_b, stateful=False)
 
         self.__hs = None
+        self._use_latest_state = True
 
     def forward(self, xs: np.ndarray):
         xs = self.__embed_layer.forward(xs)
         hs = self.__lstm_layer.forward(xs)
         self.__hs = hs
-        return hs[:, -1, :]  # 取出最后一个时间步的数据，作为整个句子的压缩
+        if self._use_latest_state:
+            return hs[:, -1, :]  # 取出最后一个时间步的数据，作为整个句子的压缩
+        else:
+            return hs
 
     def backward(self, dh: np.ndarray):
-        dhs = np.zeros_like(self.__hs)
-        dhs[:, -1, :] = dh
+        dhs: np.ndarray
+        if self._use_latest_state:
+            dhs = np.zeros_like(self.__hs)
+            dhs[:, -1, :] = dh
+        else:
+            dhs = dh
         dout = self.__lstm_layer.backward(dhs)
         dout = self.__embed_layer.backward(dout)
         return dout
 
     def get_sub_weight_layers(self) -> list[ILayer]:
         return [self.__embed_layer, self.__lstm_layer]
+
+
+class TimeAttentionEncoderLayer(TimeEncoderLayer):
+    def __init__(self, vocab_size, wordvec_size, hidden_size):
+        super().__init__(vocab_size, wordvec_size, hidden_size)
+        self._use_latest_state = False
 
 
 class TimeDecoderLayer(ILayer):
@@ -999,6 +1033,175 @@ class TimePeekyDecoderLayer(ILayer):
             out = np.concatenate((peeky_h, out), axis=2)  # 1, 1, H + H
             score = self.__affine_layer.forward(out)
 
+            sample_id = np.argmax(score.flatten())
+            sampled.append(int(sample_id))
+        return sampled
+
+    def get_sub_weight_layers(self) -> list[ILayer]:
+        return [self.__embed_layer, self.__lstm_layer, self.__affine_layer]
+
+
+class AttentionLayer(ILayer):
+    __softmax_layer: ILayer
+    __hs: np.ndarray  # (N,T,H)，encoder的隐藏状态矩阵
+    __h: np.ndarray  # (N,H)，当前decoder时间步的隐藏
+    __similaties: np.ndarray  # (N,T)，__hs与当前时间步__h的相似度
+
+    def __init__(self):
+        self.__softmax_layer = SoftmaxLayer()
+        self.__hs = None
+        self.__h = None
+        self.__similaties = None
+
+    def forward(self, hs: np.ndarray, h: np.ndarray):
+        self.__hs = hs
+        self.__h = h
+
+        # 1.计算相似度
+        N, T, H = hs.shape
+        hr = h.reshape(N, 1, H)
+        similaties = hr * hs  # (N,T,H)
+        similaties = np.sum(similaties, axis=2)  # (N,T)
+        self.__similaties = similaties = self.__softmax_layer.forward(
+            similaties
+        )  # (N,T)
+
+        # 2.根据相似度和hs，计算出输出的上下文
+        similaties = similaties.reshape(N, T, 1)
+        weight_hs = similaties * hs  # (N,T,H)
+        return np.sum(weight_hs, axis=1)  # (N,H)
+
+    def backward(self, dh: np.ndarray):
+        N, T, H = self.__hs.shape
+        # 1. 计算输出上下文的反向传播
+        dsum = dh.reshape(N, 1, H).repeat(T, axis=1)
+        dhs0 = dsum * self.__similaties.reshape(N, T, 1)
+        dsimilaty_mul = dsum * self.__hs
+        dsimilaty = np.sum(
+            dsimilaty_mul, axis=2
+        )  # （N,T,H）,因为similay原来为(N,T),复制了H份，所以需要相加
+        # 2.计算上下文的相似度
+        dsoftmax = self.__softmax_layer.backward(dsimilaty)  # (N,T)
+        dsimilaty_sum = dsoftmax.reshape(N, T, 1).repeat(H, axis=2)  # (N,T,H)
+        dhs1 = dsimilaty_sum * self.__h.reshape(N, 1, H)  # (N,T,H)
+        dhr = dsimilaty_sum * self.__hs  # (N,T,H)
+        dh = np.sum(dhr, axis=1)  # (N, H)
+        return dhs0 + dhs1, dh
+
+
+class TimeAttentionLayer(ILayer):
+    __layers: list[ILayer]
+
+    def __init__(self):
+        self.__layers = []
+
+    def forward(self, hs_enc: np.ndarray, hs_dec: np.ndarray):
+        N, T, H = hs_dec.shape
+        out = np.empty_like(hs_dec)
+        layers = self.__layers
+        for t in range(T):
+            layer = AttentionLayer()
+            layers.append(layer)
+            out[:, t, :] = layer.forward(hs_enc, hs_enc[:, t, :])
+        return out
+
+    def backward(self, dout: np.ndarray):
+        N, T, H = dout.shape
+        dhs_enc = 0
+        dhs_dec = np.empty_like(dout)
+        layers = self.__layers
+        for t in range(T):
+            dhs, dh = layers[t].backward(dout[:, t, :])
+            dhs_enc += dhs
+            dhs_dec[:, t, :] = dh
+        return dhs_enc, dhs_dec
+
+
+class TimeAttentionDecoderLayer(ILayer):
+    """
+    对decoder的每个时间步h，计算其与encoder的hs相似度，最后以相似度作为权重计算
+    出hs的加权变量，和decoder输出的hs拼接到一起
+    """
+
+    __embed_layer: TimeEmbeddingLayer
+    __lstm_layer: TimeLSTMLayer
+    __attention_layer: TimeAttentionLayer
+    __affine_layer: TimeAffineLayer
+
+    """
+    Encoder输入的隐藏状态
+    """
+    __hs_enc: np.ndarray
+
+    __hidden_dim: int
+
+    def __init__(self, vocab_size: int, wordvec_size: int, hidden_size: int):
+        rn = np.random.randn
+
+        embed_w = (rn(vocab_size, wordvec_size) / 100).astype(np.float32)
+        temp: np.ndarray = rn(wordvec_size, 4 * hidden_size) / np.sqrt(wordvec_size)
+        lstm_wx = temp.astype(np.float32)
+
+        temp = rn(hidden_size, 4 * hidden_size) / np.sqrt(hidden_size)
+        lstm_wh = temp.astype(np.float32)
+        lstm_wb = rn(4 * hidden_size).astype(np.float32)
+
+        temp = rn(hidden_size * 2, vocab_size) / np.sqrt(hidden_size * 2)
+        affine_wx = temp.astype(np.float32)
+        affine_wb = np.zeros(vocab_size).astype(np.float32)
+
+        self.__embed_layer = TimeEmbeddingLayer(embed_w)
+        self.__lstm_layer = TimeLSTMLayer(
+            wx=lstm_wx, wh=lstm_wh, wb=lstm_wb, stateful=True
+        )
+        self.__attention_layer = TimeAttentionLayer()
+        self.__affine_layer = TimeAffineLayer(wx=affine_wx, wb=affine_wb)
+        self.__hs_enc = None
+        self.__hidden_dim = None
+
+    def set_state(self, h: np.ndarray) -> TimeDecoderLayer:
+        self.__lstm_layer.set_state(h=h[:, -1])
+        self.__hs_enc = h
+        self.__hidden_dim = h.shape[2]
+        return self
+
+    def forward(self, xs: np.ndarray):
+        N, T = xs.shape
+
+        out = self.__embed_layer.forward(xs)  # N*T*D
+        hs_dec = self.__lstm_layer.forward(out)  # N*T*H
+        attenion = self.__attention_layer.forward(self.__hs_enc, hs_dec)  # N*T*H
+        in_affine = np.concatenate((attenion, hs_dec), axis=2)  # N*T*2H
+        return self.__affine_layer.forward(in_affine)
+
+    def backward(self, dscore: np.ndarray):
+        d_in_affine = self.__affine_layer.backward(dscore)  # N*T*2H
+        hidden_dim = self.__hidden_dim
+        dattention, dhs_dec0 = (
+            d_in_affine[:, :, :hidden_dim],
+            d_in_affine[:, :, hidden_dim:],
+        )
+        dhs_enc, dhs_dec1 = self.__attention_layer.backward(dattention)
+        dhs_dec = dhs_dec0 + dhs_dec1
+        dembed = self.__lstm_layer.backward(dhs_dec)
+        dh = self.__lstm_layer.dh
+        dhs_enc[:, -1] = dh
+        self.__embed_layer.backward(dembed)
+
+        return dhs_enc
+
+    def generate(self, start_id: int, sample_size: int):
+        sampled = []
+        sample_id = start_id
+        for _ in range(sample_size):
+            x = np.array(sample_id).reshape((1, 1))
+            out = self.__embed_layer.forward(x)  # 1 ,1, D
+            hs_dec = self.__lstm_layer.forward(out)
+            attenion = self.__attention_layer.forward(
+                hs_dec=hs_dec, hs_enc=self.__hs_enc
+            )
+            in_affine = np.concatenate((attenion, hs_dec), axis=2)  # 1, 1, H + D
+            score = self.__affine_layer.forward(in_affine)
             sample_id = np.argmax(score.flatten())
             sampled.append(int(sample_id))
         return sampled

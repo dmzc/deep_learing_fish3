@@ -15,8 +15,8 @@ def __update_vocab(text: str) -> None:
             char_to_id[v_char] = id
 
 
-def load_data(seed=1984) -> list[tuple[np.ndarray, np.ndarray]]:
-    file_path = current_folder / "addition.txt"
+def load_data(file="addition.txt", seed=1984) -> list[tuple[np.ndarray, np.ndarray]]:
+    file_path = current_folder / file
     questions, answers = [], []
     with open(file_path, "r") as text_iter:
         for line in text_iter:

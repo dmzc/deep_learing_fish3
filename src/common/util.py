@@ -1,5 +1,6 @@
 import numpy as np
 from src.common.interfaces.IVocab import IVocab
+from src.common.interfaces.IModel import IGenerateModel
 from src.common.logger import getLogger
 import sys
 import os
@@ -75,13 +76,13 @@ def cross_entropy(y: np.ndarray, t: np.ndarray):
 
 def softmax(x: np.typing.NDArray[np.number]) -> np.ndarray:
     if x.ndim == 2:
-        x = x.T
-        x = x - np.max(x, axis=0)
-        y = np.exp(x) / np.sum(np.exp(x), axis=0)
-        return y.T
-
-    x = x - np.max(x)  # 溢出对策
-    return np.exp(x) / np.sum(np.exp(x))
+        x = x - x.max(axis=1, keepdims=True)
+        x = np.exp(x)
+        x /= x.sum(axis=1, keepdims=True)
+    elif x.ndim == 1:
+        x = x - np.max(x)
+        x = np.exp(x) / np.sum(np.exp(x))
+    return x
 
 
 def clip_grads(grads: np.ndarray, max_grad: int):
@@ -135,11 +136,10 @@ def eval_perplexity(model, vocab: IVocab, batch_size=10, time_size=35):
 
 
 def eval_seq2seq(
-    model,
+    model: IGenerateModel,
     question: np.ndarray,
     answer: np.ndarray,
     id_to_char: dict[int, str],
-    char_to_id: dict[str, int],
     verbose=True,
     is_reverse=False,
 ) -> int:
@@ -154,11 +154,13 @@ def eval_seq2seq(
     question = "".join([id_to_char[int(c)] for c in question.flatten()])
     answer = "".join([id_to_char[int(c)] for c in answer])
     guess = "".join([id_to_char[int(c)] for c in guess])
+    # logger = getLogger()
     if verbose:
         if is_reverse:
             question = question[::-1]
 
         colors = {"ok": "\033[92m", "fail": "\033[91m", "close": "\033[0m"}
+        # text = f"Q:{question}\nT:{answer}\n"
         print("Q", question)
         print("T", answer)
 
@@ -168,12 +170,13 @@ def eval_seq2seq(
             mark = colors["ok"] + "☑" + colors["close"]
             if is_windows:
                 mark = "O"
-            print(mark + " " + guess)
         else:
             mark = colors["fail"] + "☒" + colors["close"]
             if is_windows:
                 mark = "X"
-            print(mark + " " + guess)
+        print(mark + " " + guess)
+        # text = f"{text}{mark} {guess}---"
         print("---")
+        # logger.info(text)
 
     return 1 if guess == answer else 0
