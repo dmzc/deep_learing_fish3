@@ -22,7 +22,6 @@ class Trainer:
         self.__ppl_list = []
         self.__lost_list = []
 
-    @timer("训练一次耗时")
     def train(
         self,
         x: np.ndarray,
@@ -43,6 +42,7 @@ class Trainer:
 
         total_loss = 0
         loss_count = 0
+        last_loss = None
         for epoch in range(max_epoch):
             idxs = np.random.permutation(np.arange(data_size))  # [3, 1, 4, 2, 0]
             x = x[idxs]
@@ -53,7 +53,7 @@ class Trainer:
                 batch_t = t[iter * batch_size : (iter + 1) * batch_size]
                 loss = model.forward(batch_x, batch_t)
                 if iter == max_iters - 1:
-                    print(loss)
+                    last_loss = loss
                 total_loss += loss
                 loss_count += 1
                 model.backward()
@@ -70,7 +70,8 @@ class Trainer:
                 # print(f"耗时{time.time() - start_time}")
                 # a = 12
             # 一次epoch需要0.23秒
-            print(f"训练epoch耗时:{time.time() - start_time}")
+            # print(f"训练epoch耗时:{time.time() - start_time}")
+            return last_loss
 
     def plot(self, ylim=None, use_ppl=False):
         data = self.__ppl_list if use_ppl else self.__lost_list

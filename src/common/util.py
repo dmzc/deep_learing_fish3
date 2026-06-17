@@ -161,8 +161,8 @@ def eval_seq2seq(
 
         colors = {"ok": "\033[92m", "fail": "\033[91m", "close": "\033[0m"}
         # text = f"Q:{question}\nT:{answer}\n"
-        print("Q", question)
-        print("T", answer)
+        # print("Q", question)
+        # print("T", answer)
 
         is_windows = os.name == "nt"
 
@@ -174,9 +174,9 @@ def eval_seq2seq(
             mark = colors["fail"] + "☒" + colors["close"]
             if is_windows:
                 mark = "X"
-        print(mark + " " + guess)
+        # print(mark + " " + guess)
         # text = f"{text}{mark} {guess}---"
-        print("---")
+        # print("---")
         # logger.info(text)
 
     return 1 if guess == answer else 0
